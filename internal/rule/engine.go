@@ -119,6 +119,18 @@ func newEnv() (*cel.Env, error) {
 		ext.Lists(),
 		cel.Variable("event", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable(shellCommandsVariable, cel.ListType(cel.ObjectType("rule.ShellCommand"))),
+		cel.Function("canonical_path",
+			cel.Overload("canonical_path_string",
+				[]*cel.Type{cel.StringType}, cel.StringType,
+				cel.UnaryBinding(func(arg ref.Val) ref.Val {
+					s, ok := arg.Value().(string)
+					if !ok {
+						return types.MaybeNoSuchOverloadErr(arg)
+					}
+					return types.String(model.CanonicalizePath(s))
+				}),
+			),
+		),
 	)
 }
 

@@ -143,10 +143,17 @@ Common CEL operations include:
 | List predicates | `exists`, `all`, `exists_one` |
 | List range | `items.slice(start, end)` |
 | Integer indexes | `lists.range(n).exists(i, ...)` |
+| Path normalization | `canonical_path(event.file_path)` |
 | Missing nullable value | `event.exit_code == null` |
 
 `matches` uses RE2 regular expressions. CEL string literals require their own
 escaping; for example, a literal dot is written as `"\\.env"`.
+
+`canonical_path(p)` returns the real target a path names: it applies
+`path.Clean` at any depth and strips a leading `/proc/<self|thread-self|PID>/root`
+prefix. Use it to match a protected path by its resolved location instead of
+enumerating `.`, `..`, `//`, and `/proc` disguises. It resolves lexical
+traversal only and does not dereference symlinks.
 
 Action types are alternatives, not layers. A recognized shell action is a
 `command.exec`, not both a `tool.call` and a `command.exec`; file and network

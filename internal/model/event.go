@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -524,6 +525,31 @@ func filepathClean(p string) string {
 		return ""
 	}
 	return path.Clean(NormalizeEventPath(p))
+}
+
+// procRootPrefix matches a leading /proc/<self|thread-self|PID>/root on an
+// already path.Clean-ed path. A process reaches another mount namespace's file
+// through this magic symlink, so /proc/self/root/etc/x names the same object as
+// /etc/x. The remainder is captured so the prefix can be re-rooted to "/".
+var procRootPrefix = regexp.MustCompile(`^/proc/(?:self|thread-self|[0-9]+)/root(/.*)?$`)
+
+// CanonicalizePath returns the real filesystem target a path names. It cleans
+// the path (collapsing ., .., and duplicate separators at any depth) and then
+// strips a /proc/<self|thread-self|PID>/root prefix, re-rooting it to "/". An
+// empty input stays empty. It resolves lexical traversal only; it does not
+// dereference symlinks, which are not visible in a static command or event.
+func CanonicalizePath(p string) string {
+	clean := filepathClean(p)
+	if clean == "" {
+		return ""
+	}
+	if m := procRootPrefix.FindStringSubmatch(clean); m != nil {
+		if m[1] == "" {
+			return "/"
+		}
+		return m[1]
+	}
+	return clean
 }
 
 // MergeTags returns the sorted, de-duplicated union of two tag sets.
