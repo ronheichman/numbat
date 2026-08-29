@@ -289,6 +289,8 @@ func TestMultiCommandEnforcementDoesNotProjectInvalidInterpreterInvocation(t *te
 		"bash -i --rcfile /dev/fd/3 -c exit 3<<'EOF'\ncat .env\nEOF",
 		"bash --invalid-option <<'EOF'\ncat .env\nEOF",
 		"bash -Z <<'EOF'\ncat .env\nEOF",
+		"bash -o <<'EOF'\ncat .env\nEOF",
+		"bash -O <<'EOF'\ncat .env\nEOF",
 		"zsh --invalid-option <<'EOF'\ncat .env\nEOF",
 	} {
 		matches, err := eng.Eval(model.Event{
@@ -301,6 +303,31 @@ func TestMultiCommandEnforcementDoesNotProjectInvalidInterpreterInvocation(t *te
 		}
 		if len(matches) != 0 {
 			t.Fatalf("Eval(%q) returned %+v, want no nested projection from an invalid interpreter invocation", command, matches)
+		}
+	}
+}
+
+func TestMultiCommandEnforcementDoesNotEnforceUnvalidatedNamedInterpreterOptions(t *testing.T) {
+	eng := compoundRuleEngine(t, `shell_commands.exists(command,
+		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
+	for _, command := range []string{
+		"bash -o definitely_invalid <<'EOF'\ncat .env\nEOF",
+		"bash +o definitely_invalid <<'EOF'\ncat .env\nEOF",
+		"bash -O definitely_invalid <<'EOF'\ncat .env\nEOF",
+		"bash -o pipefail <<'EOF'\ncat .env\nEOF",
+		"bash -O extglob <<'EOF'\ncat .env\nEOF",
+		"env bash -o definitely_invalid <<'EOF'\ncat .env\nEOF",
+	} {
+		matches, err := eng.Eval(model.Event{
+			EventType: model.EventCommandExec,
+			ToolName:  "bash",
+			Command:   command,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 1 || matches[0].EnforcementMatch {
+			t.Fatalf("Eval(%q) returned %+v, want one detection-only match", command, matches)
 		}
 	}
 }

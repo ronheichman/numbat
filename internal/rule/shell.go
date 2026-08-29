@@ -365,7 +365,7 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 				command.Recursive = activeFunctions[name]
 			}
 			invocation := inspectShellInvocation(call.Args)
-			command.enforcementUnsafe = invocation.noExec
+			command.enforcementUnsafe = invocation.noExec || invocation.inputEnforcementUnsafe
 			if add && !a.add(command) {
 				return false
 			}
@@ -414,7 +414,7 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 					break
 				}
 				invocation = inspectShellInvocation(args)
-				innerCommand.enforcementUnsafe = !wrapperSafe || invocation.noExec
+				innerCommand.enforcementUnsafe = !wrapperSafe || invocation.noExec || invocation.inputEnforcementUnsafe
 				if add && !a.add(innerCommand) {
 					return false
 				}
@@ -439,7 +439,7 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 						for _, script := range scripts {
 							innerStart := len(a.commands)
 							a.parseDialectUnderRedirects(script, dialectPOSIX, depth+1, innerWrappers, ctx.statementID, nil)
-							if ctx.pipelineID != 0 || !wrapperSafe {
+							if ctx.pipelineID != 0 || !wrapperSafe || invocation.inputEnforcementUnsafe {
 								a.markCommandsUnsafe(innerStart)
 							}
 						}
@@ -1088,8 +1088,9 @@ func heredocForFD(redirects []*syntax.Redirect, fd int64) (string, *syntax.Redir
 }
 
 type shellInvocation struct {
-	inputFDs []int64
-	noExec   bool
+	inputFDs               []int64
+	inputEnforcementUnsafe bool
+	noExec                 bool
 }
 
 func inspectShellInvocation(args []*syntax.Word) shellInvocation {
@@ -1108,6 +1109,7 @@ func inspectShellInvocation(args []*syntax.Word) shellInvocation {
 		startupFound, startupDisabled bool
 		inputFD                       int64
 		inputFound                    = true
+		inputEnforcementUnsafe        bool
 		bashShortOption               bool
 		shOptionLetters               bool
 	)
@@ -1169,18 +1171,37 @@ func inspectShellInvocation(args []*syntax.Word) shellInvocation {
 		}
 		if flag == "-o" || flag == "+o" {
 			i++
-			if i < len(args) {
-				option, static := staticWord(args[i])
-				if static && program == "zsh" {
-					applyZshOption(option, flag[0] == '-', &noExec, &stdin, &shOptionLetters)
-				} else if static && option == "noexec" {
-					noExec = flag[0] == '-'
-				}
+			if i >= len(args) {
+				inputFound = false
+				break
+			}
+			option, static := staticWord(args[i])
+			if !static {
+				inputFound = false
+				break
+			}
+			known := option == "noexec"
+			if program == "zsh" {
+				known = applyZshOption(option, flag[0] == '-', &noExec, &stdin, &shOptionLetters)
+			} else if known {
+				noExec = flag[0] == '-'
+			}
+			if !known {
+				inputEnforcementUnsafe = true
 			}
 			continue
 		}
 		if flag == "-O" || flag == "+O" {
 			i++
+			if i >= len(args) {
+				inputFound = false
+				break
+			}
+			if _, static := staticWord(args[i]); !static {
+				inputFound = false
+				break
+			}
+			inputEnforcementUnsafe = true
 			continue
 		}
 		if program == "bash" && flag == "--norc" {
@@ -1230,7 +1251,10 @@ func inspectShellInvocation(args []*syntax.Word) shellInvocation {
 			stdin = flag[0] == '-'
 		}
 	}
-	result := shellInvocation{noExec: noExec || terminalNoExec}
+	result := shellInvocation{
+		inputEnforcementUnsafe: inputEnforcementUnsafe,
+		noExec:                 noExec || terminalNoExec,
+	}
 	if result.noExec {
 		return result
 	}

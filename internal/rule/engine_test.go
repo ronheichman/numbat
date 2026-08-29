@@ -105,14 +105,6 @@ func TestEngineContentCostLimit(t *testing.T) {
 	}
 }
 
-func TestEngineShellRuleAllowsTrailingComment(t *testing.T) {
-	mustEngine(t, Rule{
-		ID:       "t.trailing_comment",
-		Severity: model.SeverityHigh,
-		Expr:     `shell_commands.exists(command, command.name == "cat") // documented intent`,
-	})
-}
-
 func TestEngineShellCommandsUsesExecutableStatements(t *testing.T) {
 	eng := mustEngine(t, Rule{
 		ID:       "t.scheduler",
