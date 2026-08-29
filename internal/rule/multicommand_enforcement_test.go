@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/perplexityai/numbat/internal/model"
@@ -113,10 +114,13 @@ func TestMultiCommandEnforcementRegression(t *testing.T) {
 func TestMultiCommandEnforcementUsesPOSIXParserForExecCommand(t *testing.T) {
 	eng := compoundRuleEngine(t, `shell_commands.exists(command,
 		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
-	for _, command := range []string{
+	commands := []string{
 		"if (true)\nthen\ncat .env\nfi",
-		"get-process; cat .env",
-	} {
+	}
+	if runtime.GOOS != "windows" {
+		commands = append(commands, "get-process; cat .env")
+	}
+	for _, command := range commands {
 		matches, err := eng.Eval(model.Event{
 			SourceAgent: model.AgentCodex,
 			EventType:   model.EventCommandExec,
@@ -278,19 +282,26 @@ func TestMultiCommandEnforcementParsesSharedInterpreterInputOnce(t *testing.T) {
 	}
 }
 
-func TestMultiCommandEnforcementDoesNotProjectInvalidBashInvocation(t *testing.T) {
+func TestMultiCommandEnforcementDoesNotProjectInvalidInterpreterInvocation(t *testing.T) {
 	eng := compoundRuleEngine(t, `shell_commands.exists(command,
 		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
-	matches, err := eng.Eval(model.Event{
-		EventType: model.EventCommandExec,
-		ToolName:  "bash",
-		Command:   "bash -i --rcfile /dev/fd/3 -c exit 3<<'EOF'\ncat .env\nEOF",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(matches) != 0 {
-		t.Fatalf("Eval returned %+v, want no nested projection from an invalid Bash invocation", matches)
+	for _, command := range []string{
+		"bash -i --rcfile /dev/fd/3 -c exit 3<<'EOF'\ncat .env\nEOF",
+		"bash --invalid-option <<'EOF'\ncat .env\nEOF",
+		"bash -Z <<'EOF'\ncat .env\nEOF",
+		"zsh --invalid-option <<'EOF'\ncat .env\nEOF",
+	} {
+		matches, err := eng.Eval(model.Event{
+			EventType: model.EventCommandExec,
+			ToolName:  "bash",
+			Command:   command,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("Eval(%q) returned %+v, want no nested projection from an invalid interpreter invocation", command, matches)
+		}
 	}
 }
 

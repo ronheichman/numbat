@@ -14,7 +14,7 @@ func posixEnforcementCandidates(commands []ShellCommand, unsafePipelines, unsafe
 	groups := make(map[candidateKey][]ShellCommand)
 	unsafeGroups := make(map[candidateKey]bool)
 	for _, command := range commands {
-		if command.PipelineID != 0 && !commandSafeForCandidate(command) {
+		if command.PipelineID != 0 && !commandSafeForEnforcement(command) {
 			unsafePipelines[command.PipelineID] = true
 		}
 	}
@@ -45,7 +45,7 @@ func posixEnforcementCandidates(commands []ShellCommand, unsafePipelines, unsafe
 		if _, exists := groups[key]; !exists {
 			order = append(order, key)
 		}
-		if commandSafeForCandidate(command) {
+		if commandSafeForEnforcement(command) {
 			groups[key] = append(groups[key], command)
 		} else {
 			unsafeGroups[key] = true
@@ -58,10 +58,6 @@ func posixEnforcementCandidates(commands []ShellCommand, unsafePipelines, unsafe
 		}
 	}
 	return candidates
-}
-
-func commandSafeForCandidate(command ShellCommand) bool {
-	return commandSafeForEnforcement(command)
 }
 
 func (a *shellAnalyzer) markCommandsUnsafe(start int) {

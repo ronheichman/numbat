@@ -81,17 +81,11 @@ func (s *SequenceRule) WithinEvents() int { return s.withinEvents }
 // MaxMatches returns the per-(rule, session) finding cap, always >= 1.
 func (s *SequenceRule) MaxMatches() int { return s.maxMatches }
 
-// StepEvaluation reports both the detection and enforcement verdict for one
-// sequence step. Enforcement may match a safe command candidate even when the
-// complete compound command does not match or produces an evaluation error.
 type StepEvaluation struct {
 	Match            bool
 	EnforcementMatch bool
 }
 
-// EvalStep evaluates one step against the prepared event views. Candidate
-// selection and fail-closed shell-analysis handling stay inside the rule
-// module so sequence tracking cannot accidentally authorize the wrong view.
 func (s *SequenceRule) EvalStep(i int, activations SequenceActivations) (StepEvaluation, error) {
 	if i < 0 || i >= len(s.steps) {
 		return StepEvaluation{}, fmt.Errorf("rule %q: step index %d out of range", s.rule.ID, i)
@@ -431,10 +425,6 @@ func programExpr(env *cel.Env, ast *cel.Ast) (compiledExpression, error) {
 
 const shellCandidateTemplate = shellCommandCandidatesVariable + ".exists(" + shellCommandsVariable + ", true)"
 
-// shellCandidateAST wraps an already checked predicate in a CEL exists
-// comprehension without rendering and reparsing the authored source. The
-// optimizer rechecks the combined tree, resolving shell_commands to the
-// comprehension variable while retaining the checked predicate's structure.
 func shellCandidateAST(env *cel.Env, predicate *cel.Ast) (*cel.Ast, error) {
 	template, issues := env.Compile(shellCandidateTemplate)
 	if issues != nil && issues.Err() != nil {

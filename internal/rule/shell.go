@@ -104,9 +104,6 @@ func shellCommandCandidateList(adapter types.Adapter, candidates [][]ShellComman
 	return types.NewRefValList(adapter, values)
 }
 
-// SequenceActivations contains the prepared CEL values shared by every
-// sequence step for one event. Its representation stays private so sequence
-// callers cannot accidentally select detection or enforcement inputs.
 type SequenceActivations struct {
 	prepared sequenceActivations
 }
@@ -273,24 +270,15 @@ func (a *shellAnalyzer) parseDialectUnderRedirects(source string, dialect comman
 		return
 	}
 
-	commandStart := len(a.commands)
 	file, err := parseShell(source)
 	if err != nil {
-		a.enforcementUnsafe = true
-		parseErr := errors.New("shell command analysis: unsupported or malformed syntax")
-		if file == nil || len(file.Stmts) == 0 {
-			a.reportFatal(parseErr)
-			return
-		}
-		a.report(parseErr)
+		a.reportFatal(errors.New("shell command analysis: unsupported or malformed syntax"))
+		return
 	}
 	if !posixEnforcementShapeSafe(file) {
 		a.enforcementUnsafe = true
 	}
 	a.walk(source, file, depth, make(map[string]*syntax.Stmt), make(map[string]bool), wrappers, parent, inheritedRedirects)
-	if err != nil {
-		a.markCommandsUnsafe(commandStart)
-	}
 }
 
 func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functions map[string]*syntax.Stmt, activeFunctions map[string]bool, wrappers []ShellWrapper, parent int64, inheritedRedirects []*syntax.Redirect) {
@@ -1212,7 +1200,18 @@ func inspectShellInvocation(args []*syntax.Word) shellInvocation {
 			continue
 		}
 		if strings.HasPrefix(flag, "--") {
-			continue
+			if program == "bash" {
+				switch flag {
+				case "--debugger", "--login", "--noediting", "--noprofile", "--posix", "--restricted", "--verbose":
+					continue
+				}
+			}
+			inputFound = false
+			break
+		}
+		if !validInterpreterOptionLetters(program, flag) {
+			inputFound = false
+			break
 		}
 		if strings.ContainsRune(flag[1:], 'i') {
 			interactive = flag[0] == '-'
@@ -1242,6 +1241,22 @@ func inspectShellInvocation(args []*syntax.Word) shellInvocation {
 		result.inputFDs = append(result.inputFDs, inputFD)
 	}
 	return result
+}
+
+func validInterpreterOptionLetters(program, flag string) bool {
+	allowed := "abefhkmnptuvxCcis"
+	switch program {
+	case "bash":
+		allowed = "abefhkmnptuvxBCEHPTcdilrsD"
+	case "zsh":
+		allowed = "bcdfiklmnoprsuvxX"
+	}
+	for _, option := range flag[1:] {
+		if !strings.ContainsRune(allowed, option) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizedZshOption(option string) string {
