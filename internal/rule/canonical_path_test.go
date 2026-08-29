@@ -28,8 +28,12 @@ func TestCanonicalPathCollapsesTraversalForFileEvents(t *testing.T) {
 		{"proc_root_dot_prefix", "/proc/./self/root/etc/numbat/rules/protect_numbat.yaml", true},
 		{"duplicate_slash", "/etc/numbat//rules/protect_numbat.yaml", true},
 		{"windows_separators", `\etc\numbat\rules\protect_numbat.yaml`, true},
+		{"zero_is_not_a_pid", "/proc/0/root/etc/numbat/rules/protect_numbat.yaml", false},
+		{"zero_padded_pid", "/proc/04321/root/etc/numbat/rules/protect_numbat.yaml", false},
 		{"different_proc_entry", "/proc/not-a-pid/root/etc/numbat/rules/protect_numbat.yaml", false},
 		{"similar_proc_entry", "/proc/self/rooted/etc/numbat/rules/protect_numbat.yaml", false},
+		{"relative_path_stays_relative", "etc/numbat/rules/protect_numbat.yaml", false},
+		{"leading_parent_stays_relative", "../etc/numbat/rules/protect_numbat.yaml", false},
 		{"unprotected_sibling", "/etc/numbat/rules.example/protect_numbat.yaml", false},
 		{"escapes_out", "/etc/numbat/rules/../ordinary.txt", false},
 		{"whitespace_is_path_content", " /etc/numbat/rules/protect_numbat.yaml ", false},
@@ -104,7 +108,7 @@ func TestCanonicalPathCollapsesTraversalForShellArgv(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Eval: %v", err)
 			}
-			got := len(matches) == 1
+			got := len(matches) == 1 && matches[0].EnforcementMatch
 			if got != tc.want {
 				t.Fatalf("command %q: matched=%v want=%v", tc.command, got, tc.want)
 			}

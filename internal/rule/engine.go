@@ -53,7 +53,7 @@ type compiledExpression struct {
 
 const contentRuleCostLimit uint64 = 10_000_000
 
-var procRootPath = regexp.MustCompile(`^/proc/(?:self|thread-self|[0-9]+)/root(?:/+|$)`)
+var procRootPath = regexp.MustCompile(`^/proc/(?:self|thread-self|[1-9][0-9]*)/root(?:/+|$)`)
 
 func canonicalPath(value string) string {
 	value = model.NormalizeEventPath(value)
