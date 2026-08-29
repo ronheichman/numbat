@@ -60,13 +60,20 @@ func canonicalPath(value string) string {
 	if value == "" {
 		return ""
 	}
-	clean := path.Clean(value)
-	for _, candidate := range []string{value, clean} {
-		if prefix := procRootPath.FindStringIndex(candidate); prefix != nil {
-			return path.Clean("/" + candidate[prefix[1]:])
+	for {
+		if prefix := procRootPath.FindStringIndex(value); prefix != nil {
+			if prefix[1] == len(value) {
+				return "/"
+			}
+			value = value[prefix[1]-1:]
+			continue
 		}
+		clean := path.Clean(value)
+		if clean == value {
+			return clean
+		}
+		value = clean
 	}
-	return clean
 }
 
 // SequenceRule is a compiled sequence rule ready for per-step evaluation. It

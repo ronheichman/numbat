@@ -150,7 +150,7 @@ Common CEL operations include:
 escaping; for example, a literal dot is written as `"\\.env"`.
 
 `canonical_path(p)` normalizes path separators, `.`, `..`, and duplicate `/`
-segments. It also treats a leading `/proc/<self|thread-self|PID>/root` as `/`.
+segments. It treats each leading `/proc/<self|thread-self|PID>/root` as `/`.
 It does not access the filesystem or resolve other symbolic links.
 
 Action types are alternatives, not layers. A recognized shell action is a

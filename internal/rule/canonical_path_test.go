@@ -22,6 +22,7 @@ func TestCanonicalPathCollapsesTraversalForFileEvents(t *testing.T) {
 		{"shallow_traversal", "/etc/numbat/rules/x/../protect_numbat.yaml", true},
 		{"deep_traversal_depth4", "/etc/numbat/rules/d0/d1/d2/d3/../../../../protect_numbat.yaml", true},
 		{"proc_root_prefix", "/proc/self/root/etc/numbat/rules/protect_numbat.yaml", true},
+		{"nested_proc_root_prefix", "/proc/self/root/proc/thread-self/root/etc/numbat/rules/protect_numbat.yaml", true},
 		{"proc_root_pid_traversal", "/proc/4321/root/etc/numbat/rules/d0/d1/../../protect_numbat.yaml", true},
 		{"proc_root_parent_traversal", "/proc/self/root/../etc/numbat/rules/protect_numbat.yaml", true},
 		{"proc_root_dot_prefix", "/proc/./self/root/etc/numbat/rules/protect_numbat.yaml", true},
@@ -60,6 +61,22 @@ func TestCanonicalPathKeepsMissingPathEmpty(t *testing.T) {
 	}
 	if len(matches) != 1 {
 		t.Fatalf("matches = %d, want 1", len(matches))
+	}
+}
+
+func TestCanonicalPathRejectsNonStringEventField(t *testing.T) {
+	eng := mustEngine(t, Rule{
+		ID:       "t.non_string_path",
+		Severity: model.SeverityLow,
+		Expr:     `canonical_path(event.exit_code) == ""`,
+	})
+	exitCode := 1
+	matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ExitCode: &exitCode})
+	if err == nil {
+		t.Fatal("Eval error = nil, want type error")
+	}
+	if len(matches) != 0 {
+		t.Fatalf("matches = %d, want 0", len(matches))
 	}
 }
 
