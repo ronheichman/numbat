@@ -3,7 +3,9 @@ package rule
 import (
 	"errors"
 	"fmt"
+	"path"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -50,6 +52,22 @@ type compiledExpression struct {
 }
 
 const contentRuleCostLimit uint64 = 10_000_000
+
+var procRootPath = regexp.MustCompile(`^/proc/(?:self|thread-self|[0-9]+)/root(?:/+|$)`)
+
+func canonicalPath(value string) string {
+	value = model.NormalizeEventPath(value)
+	if value == "" {
+		return ""
+	}
+	clean := path.Clean(value)
+	for _, candidate := range []string{value, clean} {
+		if prefix := procRootPath.FindStringIndex(candidate); prefix != nil {
+			return path.Clean("/" + candidate[prefix[1]:])
+		}
+	}
+	return clean
+}
 
 // SequenceRule is a compiled sequence rule ready for per-step evaluation. It
 // distills the validated spec (window, cap) next to the compiled step
@@ -123,11 +141,7 @@ func newEnv() (*cel.Env, error) {
 			cel.Overload("canonical_path_string",
 				[]*cel.Type{cel.StringType}, cel.StringType,
 				cel.UnaryBinding(func(arg ref.Val) ref.Val {
-					s, ok := arg.Value().(string)
-					if !ok {
-						return types.MaybeNoSuchOverloadErr(arg)
-					}
-					return types.String(model.CanonicalizePath(s))
+					return types.String(canonicalPath(string(arg.(types.String))))
 				}),
 			),
 		),

@@ -149,11 +149,9 @@ Common CEL operations include:
 `matches` uses RE2 regular expressions. CEL string literals require their own
 escaping; for example, a literal dot is written as `"\\.env"`.
 
-`canonical_path(p)` returns the real target a path names: it applies
-`path.Clean` at any depth and strips a leading `/proc/<self|thread-self|PID>/root`
-prefix. Use it to match a protected path by its resolved location instead of
-enumerating `.`, `..`, `//`, and `/proc` disguises. It resolves lexical
-traversal only and does not dereference symlinks.
+`canonical_path(p)` normalizes path separators, `.`, `..`, and duplicate `/`
+segments. It also treats a leading `/proc/<self|thread-self|PID>/root` as `/`.
+It does not access the filesystem or resolve other symbolic links.
 
 Action types are alternatives, not layers. A recognized shell action is a
 `command.exec`, not both a `tool.call` and a `command.exec`; file and network

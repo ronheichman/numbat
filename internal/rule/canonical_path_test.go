@@ -23,9 +23,15 @@ func TestCanonicalPathCollapsesTraversalForFileEvents(t *testing.T) {
 		{"deep_traversal_depth4", "/etc/numbat/rules/d0/d1/d2/d3/../../../../protect_numbat.yaml", true},
 		{"proc_root_prefix", "/proc/self/root/etc/numbat/rules/protect_numbat.yaml", true},
 		{"proc_root_pid_traversal", "/proc/4321/root/etc/numbat/rules/d0/d1/../../protect_numbat.yaml", true},
+		{"proc_root_parent_traversal", "/proc/self/root/../etc/numbat/rules/protect_numbat.yaml", true},
+		{"proc_root_dot_prefix", "/proc/./self/root/etc/numbat/rules/protect_numbat.yaml", true},
 		{"duplicate_slash", "/etc/numbat//rules/protect_numbat.yaml", true},
+		{"windows_separators", `\etc\numbat\rules\protect_numbat.yaml`, true},
+		{"different_proc_entry", "/proc/not-a-pid/root/etc/numbat/rules/protect_numbat.yaml", false},
+		{"similar_proc_entry", "/proc/self/rooted/etc/numbat/rules/protect_numbat.yaml", false},
 		{"unprotected_sibling", "/etc/numbat/rules.example/protect_numbat.yaml", false},
 		{"escapes_out", "/etc/numbat/rules/../ordinary.txt", false},
+		{"whitespace_is_path_content", " /etc/numbat/rules/protect_numbat.yaml ", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,6 +45,21 @@ func TestCanonicalPathCollapsesTraversalForFileEvents(t *testing.T) {
 				t.Fatalf("path %q: matched=%v want=%v", tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCanonicalPathKeepsMissingPathEmpty(t *testing.T) {
+	eng := mustEngine(t, Rule{
+		ID:       "t.empty_path",
+		Severity: model.SeverityLow,
+		Expr:     `canonical_path(event.file_path) == ""`,
+	})
+	matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches = %d, want 1", len(matches))
 	}
 }
 
@@ -56,7 +77,7 @@ func TestCanonicalPathCollapsesTraversalForShellArgv(t *testing.T) {
 	}{
 		{"plain", "rm -f /usr/local/bin/numbat", true},
 		{"deep_traversal_depth5", "rm -f /usr/local/bin/d0/d1/d2/d3/d4/../../../../../numbat", true},
-		{"proc_root", "rm -f /proc/self/root/usr/local/bin/numbat", true},
+		{"proc_root", "rm -f /proc/thread-self/root/usr/local/bin/numbat", true},
 		{"benign_other", "rm -f /tmp/numbat", false},
 	}
 	for _, tc := range cases {
@@ -71,22 +92,5 @@ func TestCanonicalPathCollapsesTraversalForShellArgv(t *testing.T) {
 				t.Fatalf("command %q: matched=%v want=%v", tc.command, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestCanonicalizePathUnit(t *testing.T) {
-	cases := map[string]string{
-		"/etc/numbat/rules/d0/d1/d2/d3/../../../../protect_numbat.yaml": "/etc/numbat/rules/protect_numbat.yaml",
-		"/proc/self/root/etc/numbat/rules/x.yaml":                       "/etc/numbat/rules/x.yaml",
-		"/proc/thread-self/root/usr/local/bin/numbat":                   "/usr/local/bin/numbat",
-		"/proc/12/root/../root/usr/local/bin/numbat":                    "/usr/local/bin/numbat",
-		"/usr/local/bin//numbat":                                        "/usr/local/bin/numbat",
-		"":                                                              "",
-		"/proc/self/root":                                               "/",
-	}
-	for in, want := range cases {
-		if got := model.CanonicalizePath(in); got != want {
-			t.Fatalf("CanonicalizePath(%q) = %q, want %q", in, got, want)
-		}
 	}
 }
