@@ -458,6 +458,7 @@ func TestPrivilegeRules(t *testing.T) {
 	eng := builtinEngine(t)
 	runCases(t, eng, []ruleCase{
 		{"sudoers file write", write("/etc/sudoers.d/agent"), "privilege.sudoers_tamper"},
+		{"sudoers dot-segment alias", write("/etc/sudoers.d/./agent"), "privilege.sudoers_tamper"},
 		{"append nopasswd sudoers", cmd("echo 'agent ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers.d/agent"), "privilege.sudoers_tamper"},
 		{"tee sudoers", cmd("printf 'agent ALL=(ALL) NOPASSWD:ALL' | tee -a /etc/sudoers"), "privilege.sudoers_tamper"},
 		{"visudo command", cmd("EDITOR=tee visudo"), "privilege.sudoers_tamper"},

@@ -59,6 +59,7 @@ func TestReleasePrecisionPersistencePolicy(t *testing.T) {
 		{"repository authorized-keys fixture stays quiet", cmd("printf key >> /repo/testdata/.ssh/authorized_keys"), ""},
 		{"home-shaped authorized-keys fixture stays quiet", cmd("printf key >> /repo/home/dev/.ssh/authorized_keys"), ""},
 		{"home authorized-keys target", cmd("printf key >> ~/.ssh/authorized_keys"), "persistence.ssh_authorized_keys_command"},
+		{"home authorized-keys duplicate separator", cmd("printf key >> /home/dev/.ssh//authorized_keys"), "persistence.ssh_authorized_keys_command"},
 		{"authorized-keys PowerShell WhatIf still records intent", cmd("Set-Content ~/.ssh/authorized_keys key -WhatIf"), "persistence.ssh_authorized_keys_command"},
 		{"repository dotfile stays quiet", write("/repo/.zshrc"), ""},
 		{"repository dotfile command stays quiet", cmd("printf x > /repo/.zshrc"), ""},
