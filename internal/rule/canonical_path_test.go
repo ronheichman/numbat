@@ -80,6 +80,26 @@ func TestCanonicalPathKeepsMissingPathEmpty(t *testing.T) {
 	}
 }
 
+func TestCanonicalPathPreservesWindowsDriveRoot(t *testing.T) {
+	eng := mustEngine(t, Rule{
+		ID:       "t.windows_drive_root",
+		Severity: model.SeverityHigh,
+		Expr:     `canonical_path(event.file_path) == "C:/ProgramData/ssh/administrators_authorized_keys"`,
+	})
+	ev := model.Event{
+		EventID:   "e",
+		EventType: model.EventFileWrite,
+		FilePath:  `C:\..\ProgramData\ssh\administrators_authorized_keys`,
+	}
+	matches, err := eng.Eval(ev)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("matches = %d, want 1", len(matches))
+	}
+}
+
 func TestCanonicalPathRejectsNonStringEventField(t *testing.T) {
 	eng := mustEngine(t, Rule{
 		ID:       "t.non_string_path",

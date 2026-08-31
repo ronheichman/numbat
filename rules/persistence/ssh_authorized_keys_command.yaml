@@ -1,5 +1,5 @@
 id: persistence.ssh_authorized_keys_command
-version: "1.7"
+version: "1.8"
 enabled: true
 title: Command targeted SSH authorized_keys
 description: |-
@@ -42,10 +42,149 @@ expr: |-
       command.name.matches("(?i)^(cp|mv|install|copy-item|move-item)$") &&
       command.argv.size() > 2 &&
       (
-        canonical_path(command.argv[command.argv.size() - 1]).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))/\\.ssh/authorized_keys2?|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+)/\\.ssh/authorized_keys2?|(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh/administrators_authorized_keys)$") ||
-        lists.range(command.argv.size() - 1).exists(i,
-          command.argv[i].matches("(?i)^-destination$") &&
-          canonical_path(command.argv[i + 1]).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))/\\.ssh/authorized_keys2?|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+)/\\.ssh/authorized_keys2?|(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh/administrators_authorized_keys)$")
+        lists.range(command.argv.size()).exists(i,
+          i > 0 &&
+          canonical_path(command.argv[i]).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))/\\.ssh/authorized_keys2?|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+)/\\.ssh/authorized_keys2?|(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh/administrators_authorized_keys)$") &&
+          (
+            command.name.matches("(?i)^(mv|move-item)$") ||
+            (
+              command.name.matches("(?i)^(cp|install)$") &&
+              !command.argv.exists(arg,
+                arg in ["-t", "--target-directory"] ||
+                arg.startsWith("--target-directory=") ||
+                arg.matches("^-[^-]*t.+$")
+              ) &&
+              (
+                i == command.argv.size() - 1 ||
+                command.argv.slice(i + 1, command.argv.size()).all(arg,
+                  arg.matches("(?i)^(-f|--force|-i|--interactive|-n|--no-clobber|-T|--no-target-directory|-v|--verbose)$")
+                )
+              )
+            ) ||
+            (
+              command.name.matches("(?i)^copy-item$") &&
+              (
+                command.argv[i - 1].matches("(?i)^-destination$") ||
+                (
+                  !command.argv.exists(arg, arg.matches("(?i)^-destination$")) &&
+                  (
+                    i == command.argv.size() - 1 ||
+                    command.argv.slice(i + 1, command.argv.size()).all(arg,
+                      arg.matches("(?i)^-(force|recurse|container|passthru|whatif|confirm)(:.*)?$")
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    ) ||
+    (
+      command.name.matches("(?i)^(cp|mv|install)$") &&
+      command.argv.size() > 2 &&
+      (
+        lists.range(command.argv.size()).exists(i,
+          i > 0 &&
+          (
+            (
+              canonical_path(command.argv[i]).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+))/\\.ssh$") &&
+              lists.range(command.argv.size()).exists(source,
+                source > 0 &&
+                canonical_path(command.argv[source]).matches("(?i)(^|/)authorized_keys2?$") &&
+                (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+              )
+            ) ||
+            (
+              canonical_path(command.argv[i]).matches("(?i)^(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh$") &&
+              lists.range(command.argv.size()).exists(source,
+                source > 0 &&
+                canonical_path(command.argv[source]).matches("(?i)(^|/)administrators_authorized_keys$") &&
+                (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+              )
+            )
+          ) &&
+          (
+            (
+              command.argv[i - 1].matches("(?i)^(-t|--target-directory)$") &&
+              !lists.range(command.argv.size()).exists(k,
+                k > i &&
+                (
+                  command.argv[k] in ["-t", "--target-directory"] ||
+                  command.argv[k].startsWith("--target-directory=") ||
+                  command.argv[k].matches("^-[^-]*t.+$")
+                )
+              )
+            ) ||
+            (
+              i > 1 &&
+              !command.argv.exists(arg,
+                arg in ["-t", "--target-directory"] ||
+                arg.startsWith("--target-directory=") ||
+                arg.matches("^-[^-]*t.+$")
+              ) &&
+              command.argv.slice(i + 1, command.argv.size()).all(arg,
+                arg.matches("(?i)^(-f|--force|-i|--interactive|-n|--no-clobber|-T|--no-target-directory|-v|--verbose)$")
+              )
+            )
+          )
+        ) ||
+        (
+          lists.range(command.argv.size()).exists(target,
+            target > 0 &&
+            (
+              (
+                command.argv[target].startsWith("--target-directory=") &&
+                (
+                  (
+                    canonical_path(command.argv[target].substring(19)).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+))/\\.ssh$") &&
+                    lists.range(command.argv.size()).exists(source,
+                      source > 0 &&
+                      canonical_path(command.argv[source]).matches("(?i)(^|/)authorized_keys2?$") &&
+                      (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+                    )
+                  ) ||
+                  (
+                    canonical_path(command.argv[target].substring(19)).matches("(?i)^(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh$") &&
+                    lists.range(command.argv.size()).exists(source,
+                      source > 0 &&
+                      canonical_path(command.argv[source]).matches("(?i)(^|/)administrators_authorized_keys$") &&
+                      (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+                    )
+                  )
+                )
+              ) ||
+              (
+                command.argv[target].matches("^-[^-]*t.+$") &&
+                (
+                  (
+                    canonical_path(command.argv[target].substring(command.argv[target].indexOf("t") + 1)).matches("(?i)^((~|\\$HOME|\\$\\{HOME\\}|/(home/[^/]+|Users/[^/]+|root|var/root|private/var/root))|(\\$env:USERPROFILE|%USERPROFILE%|[A-Z]:/Users/[^/]+))/\\.ssh$") &&
+                    lists.range(command.argv.size()).exists(source,
+                      source > 0 &&
+                      canonical_path(command.argv[source]).matches("(?i)(^|/)authorized_keys2?$") &&
+                      (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+                    )
+                  ) ||
+                  (
+                    canonical_path(command.argv[target].substring(command.argv[target].indexOf("t") + 1)).matches("(?i)^(\\$env:ProgramData|%ProgramData%|[A-Z]:/ProgramData)/ssh$") &&
+                    lists.range(command.argv.size()).exists(source,
+                      source > 0 &&
+                      canonical_path(command.argv[source]).matches("(?i)(^|/)administrators_authorized_keys$") &&
+                      (source == 1 || !command.argv[source - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+                    )
+                  )
+                )
+              )
+            ) &&
+            !lists.range(command.argv.size()).exists(k,
+              k > target &&
+              (
+                command.argv[k] in ["-t", "--target-directory"] ||
+                command.argv[k].startsWith("--target-directory=") ||
+                command.argv[k].matches("^-[^-]*t.+$")
+              )
+            )
+          )
         )
       )
     )

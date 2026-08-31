@@ -153,7 +153,8 @@ escaping; for example, a literal dot is written as `"\\.env"`.
 `canonical_path(p)` normalizes path separators, `.`, `..`, and duplicate `/`
 segments. It treats each leading `/proc/<self|thread-self|PID>/root` or
 `/proc/<self|PID>/task/<TID>/root` as `/`. Relative paths remain relative. It
-does not access the filesystem or resolve other symbolic links.
+keeps absolute Windows paths rooted to their drive. It does not access the
+filesystem or resolve other symbolic links.
 
 Action types are alternatives, not layers. A recognized shell action is a
 `command.exec`, not both a `tool.call` and a `command.exec`; file and network

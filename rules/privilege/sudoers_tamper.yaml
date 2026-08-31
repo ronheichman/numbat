@@ -1,5 +1,5 @@
 id: privilege.sudoers_tamper
-version: "1.4"
+version: "1.5"
 enabled: true
 title: Agent targeted sudoers policy for modification
 description: |-
@@ -17,30 +17,37 @@ expr: |-
       (
         command.name.matches("(?i)^visudo$") &&
         !command.argv.exists(arg,
-          arg.matches("(?i)^(-c|--check|--help|-h|--version|-V|--export)(=.*)?$")
+          arg.matches("^(--check|--help|--version|--export)(=.*)?$") ||
+          arg.matches("^-[qs]*c[qs]*(f.*)?$") ||
+          arg.matches("^-[qs]*x.*$") ||
+          arg in ["-h", "-V"]
         ) &&
         (
           (
-            !command.argv.exists(arg, arg.matches("(?i)^(-f|--file)(=.*)?$")) &&
+            !command.argv.exists(arg,
+              arg.matches("^--file(=.*)?$") ||
+              arg.matches("^-[qs]*f.*$")
+            ) &&
             command.argv.slice(1, command.argv.size()).all(arg,
-              arg.matches("(?i)^(-q|-s|--quiet|--strict)$")
+              arg.matches("^-[qs]+$") ||
+              arg in ["--quiet", "--strict"]
             )
           ) ||
           lists.range(command.argv.size()).exists(i,
             i > 0 &&
             (
               (
-                command.argv[i].startsWith("-f=") &&
-                canonical_path(command.argv[i].substring(3)).matches("^/etc/sudoers(\\.d/[^/]+)?$")
-              ) ||
-              (
                 command.argv[i].startsWith("--file=") &&
                 canonical_path(command.argv[i].substring(7)).matches("^/etc/sudoers(\\.d/[^/]+)?$")
               ) ||
               (
-                command.argv[i].matches("(?i)^(-f|--file)$") &&
+                command.argv[i].matches("^-[qs]*f.+$") &&
+                canonical_path(command.argv[i].substring(command.argv[i].indexOf("f") + 1)).matches("^/etc/sudoers(\\.d/[^/]+)?$")
+              ) ||
+              (
+                (command.argv[i] == "--file" || command.argv[i].matches("^-[qs]*f$")) &&
                 i + 1 < command.argv.size() &&
-                canonical_path(command.argv[i + 1]).matches("(?i)^/etc/sudoers(\\.d/[^/]+)?$")
+                canonical_path(command.argv[i + 1]).matches("^/etc/sudoers(\\.d/[^/]+)?$")
               )
             )
           )
@@ -62,9 +69,17 @@ expr: |-
           command.name.matches("(?i)^mv$") ||
           (
             command.name.matches("(?i)^(cp|install)$") &&
+            !command.argv.exists(arg,
+              arg in ["-t", "--target-directory"] ||
+              arg.startsWith("--target-directory=") ||
+              arg.matches("^-[^-]*t.+$")
+            ) &&
             (
               i == command.argv.size() - 1 ||
-              command.argv[i - 1].matches("(?i)^(-t|--target-directory)$")
+              command.argv[i - 1].matches("(?i)^(-t|--target-directory)$") ||
+              command.argv.slice(i + 1, command.argv.size()).all(arg,
+                arg.matches("(?i)^(-f|--force|-i|--interactive|-n|--no-clobber|-T|--no-target-directory|-v|--verbose)$")
+              )
             )
           ) ||
           (
@@ -102,6 +117,71 @@ expr: |-
                 command.argv[j].matches("(?i)^-(force|recurse|container|passthru|whatif|confirm)(:.*)?$")
               )
             )
+          )
+        )
+      ) ||
+      (
+        command.name.matches("(?i)^(cp|mv|install)$") &&
+        lists.range(command.argv.size()).exists(i,
+          i > 0 &&
+          canonical_path(command.argv[i]) == "/etc/sudoers.d" &&
+          (
+            (
+              command.argv[i - 1].matches("(?i)^(-t|--target-directory)$") &&
+              !lists.range(command.argv.size()).exists(k,
+                k > i &&
+                (
+                  command.argv[k] in ["-t", "--target-directory"] ||
+                  command.argv[k].startsWith("--target-directory=") ||
+                  command.argv[k].matches("^-[^-]*t.+$")
+                )
+              ) &&
+              lists.range(command.argv.size()).exists(j,
+                j > 0 &&
+                j != i &&
+                !command.argv[j].startsWith("-") &&
+                (j == 1 || !command.argv[j - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
+              )
+            ) ||
+            (
+              i > 1 &&
+              !command.argv.exists(arg,
+                arg in ["-t", "--target-directory"] ||
+                arg.startsWith("--target-directory=") ||
+                arg.matches("^-[^-]*t.+$")
+              ) &&
+              command.argv.slice(i + 1, command.argv.size()).all(arg,
+                arg.matches("(?i)^(-f|--force|-i|--interactive|-n|--no-clobber|-T|--no-target-directory|-v|--verbose)$")
+              )
+            )
+          )
+        ) ||
+        (
+          lists.range(command.argv.size()).exists(target,
+            target > 0 &&
+            (
+              (
+                command.argv[target].startsWith("--target-directory=") &&
+                canonical_path(command.argv[target].substring(19)) == "/etc/sudoers.d"
+              ) ||
+              (
+                command.argv[target].matches("^-[^-]*t.+$") &&
+                canonical_path(command.argv[target].substring(command.argv[target].indexOf("t") + 1)) == "/etc/sudoers.d"
+              )
+            ) &&
+            !lists.range(command.argv.size()).exists(k,
+              k > target &&
+              (
+                command.argv[k] in ["-t", "--target-directory"] ||
+                command.argv[k].startsWith("--target-directory=") ||
+                command.argv[k].matches("^-[^-]*t.+$")
+              )
+            )
+          ) &&
+          lists.range(command.argv.size()).exists(i,
+            i > 0 &&
+            !command.argv[i].startsWith("-") &&
+            (i == 1 || !command.argv[i - 1].matches("(?i)^(-S|--suffix|-g|--group|-m|--mode|-o|--owner|--strip-program|--context|--sparse)$"))
           )
         )
       )
