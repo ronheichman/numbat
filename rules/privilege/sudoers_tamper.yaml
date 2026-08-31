@@ -29,7 +29,14 @@ expr: |-
           lists.range(command.argv.size()).exists(i,
             i > 0 &&
             (
-              command.argv[i].matches("(?i)^(-f|--file)=/etc/sudoers(\\.d/[^/]+)?$") ||
+              (
+                command.argv[i].startsWith("-f=") &&
+                canonical_path(command.argv[i].substring(3)).matches("^/etc/sudoers(\\.d/[^/]+)?$")
+              ) ||
+              (
+                command.argv[i].startsWith("--file=") &&
+                canonical_path(command.argv[i].substring(7)).matches("^/etc/sudoers(\\.d/[^/]+)?$")
+              ) ||
               (
                 command.argv[i].matches("(?i)^(-f|--file)$") &&
                 i + 1 < command.argv.size() &&

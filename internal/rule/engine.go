@@ -53,7 +53,7 @@ type compiledExpression struct {
 
 const contentRuleCostLimit uint64 = 10_000_000
 
-var procRootPath = regexp.MustCompile(`^/proc/(?:self|thread-self|[1-9][0-9]*)/root(?:/+|$)`)
+var procRootPath = regexp.MustCompile(`^/proc/(?:(?:self|[1-9][0-9]*)/task/[1-9][0-9]*|self|thread-self|[1-9][0-9]*)/root(?:/+|$)`)
 
 func canonicalPath(value string) string {
 	value = model.NormalizeEventPath(value)
@@ -142,6 +142,7 @@ func newEnv() (*cel.Env, error) {
 			ext.ParseStructTags(true),
 		),
 		ext.Lists(),
+		ext.Strings(),
 		cel.Variable("event", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable(shellCommandsVariable, cel.ListType(cel.ObjectType("rule.ShellCommand"))),
 		cel.Function("canonical_path",

@@ -140,6 +140,7 @@ Common CEL operations include:
 | Boolean logic | `a && b`, `a || b`, `!a` |
 | Membership | `value in ["a", "b"]` |
 | String tests | `contains`, `startsWith`, `endsWith`, `matches` |
+| String slicing | `substring(start)`, `substring(start, end)` |
 | List predicates | `exists`, `all`, `exists_one` |
 | List range | `items.slice(start, end)` |
 | Integer indexes | `lists.range(n).exists(i, ...)` |
@@ -150,9 +151,9 @@ Common CEL operations include:
 escaping; for example, a literal dot is written as `"\\.env"`.
 
 `canonical_path(p)` normalizes path separators, `.`, `..`, and duplicate `/`
-segments. It treats each leading `/proc/<self|thread-self|PID>/root` as `/`.
-Relative paths remain relative. It does not access the filesystem or resolve
-other symbolic links.
+segments. It treats each leading `/proc/<self|thread-self|PID>/root` or
+`/proc/<self|PID>/task/<TID>/root` as `/`. Relative paths remain relative. It
+does not access the filesystem or resolve other symbolic links.
 
 Action types are alternatives, not layers. A recognized shell action is a
 `command.exec`, not both a `tool.call` and a `command.exec`; file and network
