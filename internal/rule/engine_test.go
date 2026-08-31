@@ -587,7 +587,12 @@ func TestEngineLimitsEnforcementToStaticShellSubset(t *testing.T) {
 
 	allowed := []model.Event{
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `wipefs -a /dev/sda`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `echo ready; wipefs -a /dev/sda`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `echo ready && wipefs -a /dev/sda`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `echo ready || wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `printf x | wipefs -a /dev/sda`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `(wipefs -a /dev/sda)`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `{ wipefs -a /dev/sda; }`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `sudo wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `sudo MODE=test wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `sudo MODE=test -- wipefs -a /dev/sda`},
@@ -648,9 +653,9 @@ func TestEngineLimitsEnforcementToStaticShellSubset(t *testing.T) {
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `exec -a wipe wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `pwsh -Command 'Stop-Process -Name target -Force'`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `echo "$(wipefs -a /dev/sda)"`},
+		{EventType: model.EventCommandExec, ToolName: "bash", Command: `{ wipefs -a /dev/sda; } > "$output"`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `wipefs -a /dev/sda --no-*`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `wipefs -a /dev/sda --{no-act,other}`},
-		{EventType: model.EventCommandExec, ToolName: "bash", Command: `echo ready; wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `"$next"; wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `! wipefs -a /dev/sda`},
 		{EventType: model.EventCommandExec, ToolName: "bash", Command: `wipefs -a /dev/sda &`},
@@ -678,6 +683,17 @@ func TestEngineLimitsEnforcementToStaticShellSubset(t *testing.T) {
 		}
 		if matches[0].EnforcementMatch {
 			t.Errorf("Eval(%q) authorized enforcement", event.Command)
+		}
+	}
+
+	for _, command := range []string{
+		`echo ready; git status`,
+		`gh repo view owner/repo && git status`,
+		`gh repo view owner/repo || git status`,
+	} {
+		matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: command})
+		if err != nil || len(matches) != 0 {
+			t.Errorf("Eval(%q) = (%+v, %v), want no read-only match", command, matches, err)
 		}
 	}
 

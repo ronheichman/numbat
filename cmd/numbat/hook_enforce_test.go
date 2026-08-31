@@ -163,6 +163,20 @@ expr: |
   )
 `
 
+const gitPushEnforceRule = `id: enforce_test.git_push
+version: "1.0"
+title: Git push
+severity: high
+enforce: true
+expr: |-
+  event.event_type == "command.exec" &&
+  shell_commands.exists(command,
+    command.name == "git" &&
+    command.argv.size() > 1 &&
+    command.argv[1] == "push"
+  )
+`
+
 const mediumEnforceRule = `id: enforce_test.medium_block
 version: "1.0"
 title: Medium operator policy match
@@ -1421,6 +1435,16 @@ func TestCodexEnforceShellMatchDenies(t *testing.T) {
 	}
 	if n := strings.Count(out, "\n"); n != 1 {
 		t.Fatalf("response written on %d lines, want exactly 1", n)
+	}
+}
+
+func TestCodexEnforceCompoundShellListDenies(t *testing.T) {
+	dir := writeEnforceRuleFile(t, gitPushEnforceRule)
+	payload := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo fork owner/repo && git push origin main"},"cwd":"/proj","session_id":"s1"}`
+	out, errOut, code := runCLIStdin(payload,
+		enforceHookArgs(t, "hook", "PreToolUse", "--agent", "codex", "--enforce", "--rules-dir", dir)...)
+	if code != 0 || decodeDecision(t, out) != model.EnforcementDecisionDeny {
+		t.Fatalf("compound command was not denied: exit=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 }
 
