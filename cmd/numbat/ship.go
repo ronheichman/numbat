@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/perplexityai/numbat/internal/output"
+	"github.com/perplexityai/numbat/internal/spool"
 )
 
 const (
@@ -85,9 +86,10 @@ type shipSinkFactory func() (output.Sink, error)
 func runShip(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("ship", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	inputPath := fs.String("input-file", "", "append-only NDJSON file to ship (required)")
+	inputPath := fs.String("input-file", "", "legacy append-only NDJSON file to ship")
+	spoolPath := fs.String("spool-file", "", "durable record queue to ship (use instead of --input-file)")
 	statePath := fs.String("state-file", "", "delivery checkpoint (default <input-file>.ship-state)")
-	poll := fs.Duration("poll", defaultShipPoll, "interval between input-file polls")
+	poll := fs.Duration("poll", defaultShipPoll, "interval between source polls")
 	httpURL := fs.String("http-url", "", "ingest URL (required)")
 	httpTimeout := fs.Duration("http-timeout", 30*time.Second, "HTTP request timeout")
 	httpAuth := fs.String("http-auth", output.AuthNone, "HTTP delivery auth: none|bearer|hmac-sha256")
@@ -96,8 +98,10 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 	httpAllowInsecure := fs.Bool("http-allow-insecure", false, "allow plain http to non-loopback hosts")
 	httpGzip := fs.Bool("http-gzip", false, "gzip the HTTP POST body")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "usage: numbat ship --input-file PATH --http-url URL [--state-file PATH] [--poll DUR] [HTTP options]")
-		fmt.Fprintln(stderr, "\nTails an append-only numbat NDJSON file to an HTTP endpoint with a durable")
+		fmt.Fprintln(stderr, "usage: numbat ship (--spool-file PATH | --input-file PATH) --http-url URL [--state-file PATH] [--poll DUR] [HTTP options]")
+		fmt.Fprintln(stderr, "\nDrains a transactional numbat spool, or tails a legacy append-only NDJSON file,")
+		fmt.Fprintln(stderr, "to an HTTP endpoint. Spool records are acknowledged only after a successful POST.")
+		fmt.Fprintln(stderr, "Legacy file input uses a durable")
 		fmt.Fprintln(stderr, "checkpoint. Retained records up to 8 MiB are delivered at least once while the")
 		fmt.Fprintln(stderr, "input and rotated files remain available. Receivers must tolerate duplicates.")
 		fmt.Fprintln(stderr, "Records larger than 8 MiB remain in the input file but are skipped.")
@@ -115,8 +119,10 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return 2
 	}
-	if strings.TrimSpace(*inputPath) == "" {
-		fmt.Fprintln(stderr, "ship: --input-file is required")
+	inputSet := strings.TrimSpace(*inputPath) != ""
+	spoolSet := strings.TrimSpace(*spoolPath) != ""
+	if inputSet == spoolSet {
+		fmt.Fprintln(stderr, "ship: exactly one of --spool-file or --input-file is required")
 		fs.Usage()
 		return 2
 	}
@@ -130,13 +136,21 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return 2
 	}
-	if *statePath == "" {
-		*statePath = *inputPath + ".ship-state"
-	}
-	if sameShipPath(*inputPath, *statePath) || sameShipPath(*inputPath, *statePath+".lock") {
-		fmt.Fprintln(stderr, "ship: --state-file and its lock must differ from --input-file")
-		fs.Usage()
-		return 2
+	if spoolSet {
+		if *statePath != "" {
+			fmt.Fprintln(stderr, "ship: --state-file is only valid with legacy --input-file")
+			fs.Usage()
+			return 2
+		}
+	} else {
+		if *statePath == "" {
+			*statePath = *inputPath + ".ship-state"
+		}
+		if sameShipPath(*inputPath, *statePath) || sameShipPath(*inputPath, *statePath+".lock") {
+			fmt.Fprintln(stderr, "ship: --state-file and its lock must differ from --input-file")
+			fs.Usage()
+			return 2
+		}
 	}
 	var httpFlagsSet []string
 	fs.Visit(func(f *flag.Flag) {
@@ -171,6 +185,24 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 		_ = s.Close()
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if spoolSet {
+		store := spool.New(*spoolPath)
+		if _, err := store.Peek(maxShipBatchBytes); spoolOpenIsFatal(err) {
+			fmt.Fprintf(stderr, "ship: open spool: %v\n", err)
+			return 1
+		}
+		lock, err := acquireShipLock(*spoolPath + ".ship.lock")
+		if err != nil {
+			fmt.Fprintf(stderr, "ship: acquire spool shipper lock: %v\n", err)
+			return 1
+		}
+		defer lock.Close()
+		fmt.Fprintf(stderr, "numbat ship: shipping spool %s to the configured HTTP endpoint (Ctrl-C to stop)\n", *spoolPath)
+		return runSpoolShipLoop(ctx, store, *poll, factory, stderr)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(*statePath), 0o700); err != nil {
 		fmt.Fprintf(stderr, "ship: create state directory: %v\n", err)
 		return 1
@@ -182,26 +214,25 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 	}
 	defer lock.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	fmt.Fprintf(stderr, "numbat ship: shipping %s to the configured HTTP endpoint (Ctrl-C to stop)\n", *inputPath)
 	return runShipLoop(ctx, *inputPath, *statePath, shipDestinationID(*httpURL), *poll, factory, stderr)
 }
 
-func runShipLoop(ctx context.Context, inputPath, statePath, destination string, poll time.Duration, factory shipSinkFactory, stderr io.Writer) int {
-	cursor, err := readShipCursor(statePath, destination)
-	if err != nil {
-		fmt.Fprintf(stderr, "ship: read state %s: %v\n", statePath, err)
-		return 1
-	}
-	if cursor.resetReason != "" {
-		fmt.Fprintf(stderr, "ship: %s; replaying retained records\n", cursor.resetReason)
-		cursor.resetReason = ""
-	}
+func spoolOpenIsFatal(err error) bool {
+	return err != nil && !errors.Is(err, spool.ErrBusy)
+}
+
+func runSpoolShipLoop(ctx context.Context, store spool.Store, poll time.Duration, factory shipSinkFactory, stderr io.Writer) int {
+	return runShipRetryLoop(ctx, poll, stderr, func() error {
+		return drainSpoolAvailable(ctx, store, maxShipBatchBytes, factory)
+	})
+}
+
+func runShipRetryLoop(ctx context.Context, poll time.Duration, stderr io.Writer, drain func() error) int {
 	stalled := false
 	failures := 0
 	for {
-		cursor, err = drainAvailable(ctx, inputPath, statePath, cursor, maxShipBatchBytes, factory, stderr)
+		err := drain()
 		if ctx.Err() != nil {
 			return 0
 		}
@@ -228,6 +259,49 @@ func runShipLoop(ctx context.Context, inputPath, statePath, destination string, 
 		case <-timer.C:
 		}
 	}
+}
+
+func drainSpoolAvailable(ctx context.Context, store spool.Store, maxBytes int, factory shipSinkFactory) error {
+	for ctx.Err() == nil {
+		sent, err := shipSpoolBatch(store, maxBytes, factory)
+		if err != nil || !sent {
+			return err
+		}
+	}
+	return nil
+}
+
+func shipSpoolBatch(store spool.Store, maxBytes int, factory shipSinkFactory) (bool, error) {
+	batch, err := store.Peek(maxBytes)
+	if err != nil {
+		return false, fmt.Errorf("read spool: %w", err)
+	}
+	if len(batch.Records) == 0 {
+		return false, nil
+	}
+	if err := shipBatch(factory, bytes.Join(batch.Records, nil)); err != nil {
+		return true, err
+	}
+	if err := store.Ack(batch); err != nil {
+		return true, fmt.Errorf("acknowledge spool batch: %w", err)
+	}
+	return true, nil
+}
+
+func runShipLoop(ctx context.Context, inputPath, statePath, destination string, poll time.Duration, factory shipSinkFactory, stderr io.Writer) int {
+	cursor, err := readShipCursor(statePath, destination)
+	if err != nil {
+		fmt.Fprintf(stderr, "ship: read state %s: %v\n", statePath, err)
+		return 1
+	}
+	if cursor.resetReason != "" {
+		fmt.Fprintf(stderr, "ship: %s; replaying retained records\n", cursor.resetReason)
+		cursor.resetReason = ""
+	}
+	return runShipRetryLoop(ctx, poll, stderr, func() error {
+		cursor, err = drainAvailable(ctx, inputPath, statePath, cursor, maxShipBatchBytes, factory, stderr)
+		return err
+	})
 }
 
 func shipRetryDelay(base time.Duration, failures int) time.Duration {
@@ -767,7 +841,7 @@ func sameShipPath(a, b string) bool {
 	if errA != nil || errB != nil {
 		return false
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		return strings.EqualFold(a, b)
 	}
 	return a == b

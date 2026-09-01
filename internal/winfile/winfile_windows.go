@@ -51,6 +51,13 @@ func OpenOutput(path string, appendMode bool) (*os.File, error) {
 	return f, nil
 }
 
+// OpenExistingReadWrite opens an existing regular file for bbolt. It refuses a
+// reparse point at the final component.
+func OpenExistingReadWrite(path string) (*os.File, error) {
+	access := uint32(windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE)
+	return open(path, access, windows.OPEN_EXISTING)
+}
+
 func open(path string, access, creation uint32) (*os.File, error) {
 	winPath, err := extendedPath(path)
 	if err != nil {
