@@ -710,25 +710,19 @@ func hookStatePath(override, spoolPath string) (string, error) {
 		}
 		path = filepath.Join(home, ".numbat", "state.db")
 	}
-	if spoolPath != "" && sameHookDataPath(spoolPath, path) {
-		return "", errors.New("--spool-file and --state-db must name different files")
+	if spoolPath != "" {
+		same, err := sameHookDataPath(spoolPath, path)
+		if err != nil {
+			return "", fmt.Errorf("compare --spool-file and --state-db: %w", err)
+		}
+		if same {
+			return "", errors.New("--spool-file and --state-db must name different files")
+		}
 	}
 	return path, nil
 }
 
-func sameHookDataPath(a, b string) bool {
-	if sameShipPath(a, b) {
-		return true
-	}
-	aInfo, aErr := os.Stat(a)
-	bInfo, bErr := os.Stat(b)
-	if aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo) {
-		return true
-	}
-	a, aErr = pathWithResolvedParent(a)
-	b, bErr = pathWithResolvedParent(b)
-	return aErr == nil && bErr == nil && sameShipPath(a, b)
-}
+func sameHookDataPath(a, b string) (bool, error) { return sameShipPath(a, b) }
 
 func pathWithResolvedParent(path string) (string, error) {
 	path, err := filepath.Abs(filepath.Clean(path))
@@ -750,18 +744,7 @@ func pathWithResolvedParent(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		target, err := os.Readlink(path)
-		if err != nil {
-			return "", err
-		}
-		if !filepath.IsAbs(target) {
-			parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-			if err != nil {
-				return "", err
-			}
-			target = filepath.Join(parent, target)
-		}
-		path, err = filepath.Abs(filepath.Clean(target))
+		path, err = resolvedSymlinkTarget(path)
 		if err != nil {
 			return "", err
 		}
@@ -779,6 +762,20 @@ func pathWithResolvedParent(path string) (string, error) {
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+		info, lstatErr := os.Lstat(parent)
+		if lstatErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			target, err := resolvedSymlinkTarget(parent)
+			if err != nil {
+				return "", err
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				target = filepath.Join(target, missing[i])
+			}
+			return pathWithResolvedParent(filepath.Join(target, filepath.Base(path)))
+		}
+		if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
+			return "", lstatErr
+		}
 		next := filepath.Dir(parent)
 		if next == parent {
 			return "", err
@@ -786,4 +783,19 @@ func pathWithResolvedParent(path string) (string, error) {
 		missing = append(missing, filepath.Base(parent))
 		parent = next
 	}
+}
+
+func resolvedSymlinkTarget(path string) (string, error) {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(target) {
+		parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return "", err
+		}
+		target = filepath.Join(parent, target)
+	}
+	return filepath.Abs(filepath.Clean(target))
 }

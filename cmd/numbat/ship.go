@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -146,10 +145,18 @@ func runShip(args []string, stdout, stderr io.Writer) int {
 		if *statePath == "" {
 			*statePath = *inputPath + ".ship-state"
 		}
-		if sameShipPath(*inputPath, *statePath) || sameShipPath(*inputPath, *statePath+".lock") {
-			fmt.Fprintln(stderr, "ship: --state-file and its lock must differ from --input-file")
-			fs.Usage()
-			return 2
+		for _, candidate := range []string{*statePath, *statePath + ".lock"} {
+			same, err := sameShipPath(*inputPath, candidate)
+			if err != nil {
+				fmt.Fprintf(stderr, "ship: compare input and state paths: %v\n", err)
+				fs.Usage()
+				return 2
+			}
+			if same {
+				fmt.Fprintln(stderr, "ship: --state-file and its lock must differ from --input-file")
+				fs.Usage()
+				return 2
+			}
 		}
 	}
 	var httpFlagsSet []string
@@ -835,14 +842,92 @@ func shipDestinationID(rawURL string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func sameShipPath(a, b string) bool {
-	a, errA := filepath.Abs(filepath.Clean(a))
-	b, errB := filepath.Abs(filepath.Clean(b))
-	if errA != nil || errB != nil {
-		return false
+func sameShipPath(a, b string) (bool, error) {
+	a, err := pathWithResolvedParent(a)
+	if err != nil {
+		return false, fmt.Errorf("resolve %q: %w", a, err)
 	}
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		return strings.EqualFold(a, b)
+	b, err = pathWithResolvedParent(b)
+	if err != nil {
+		return false, fmt.Errorf("resolve %q: %w", b, err)
 	}
-	return a == b
+	if a == b {
+		return true, nil
+	}
+
+	aParent, aInfo, err := existingShipPath(a)
+	if err != nil {
+		return false, fmt.Errorf("inspect %q: %w", a, err)
+	}
+	bParent, bInfo, err := existingShipPath(b)
+	if err != nil {
+		return false, fmt.Errorf("inspect %q: %w", b, err)
+	}
+	if !os.SameFile(aInfo, bInfo) {
+		return false, nil
+	}
+	aRelative, err := filepath.Rel(aParent, a)
+	if err != nil {
+		return false, err
+	}
+	bRelative, err := filepath.Rel(bParent, b)
+	if err != nil {
+		return false, err
+	}
+	if aRelative == "." && bRelative == "." {
+		return true, nil
+	}
+	if aRelative == "." || bRelative == "." {
+		return false, nil
+	}
+	if !filepath.IsLocal(aRelative) || !filepath.IsLocal(bRelative) {
+		return false, errors.New("resolved path escapes its existing parent")
+	}
+	return probeSameShipPath(aParent, aRelative, bRelative)
+}
+
+func existingShipPath(path string) (string, os.FileInfo, error) {
+	for {
+		info, err := os.Stat(path)
+		if err == nil {
+			return path, info, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", nil, err
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", nil, err
+		}
+		path = parent
+	}
+}
+
+func probeSameShipPath(parent, aRelative, bRelative string) (same bool, err error) {
+	root, err := os.MkdirTemp(parent, ".numbat-path-identity-")
+	if err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(root)) }()
+
+	aPath := filepath.Join(root, aRelative)
+	if err := os.MkdirAll(filepath.Dir(aPath), 0o700); err != nil {
+		return false, err
+	}
+	file, err := os.OpenFile(aPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false, err
+	}
+	aInfo, statErr := file.Stat()
+	if err := errors.Join(statErr, file.Close()); err != nil {
+		return false, err
+	}
+	bInfo, err := os.Stat(filepath.Join(root, bRelative))
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(aInfo, bInfo), nil
 }

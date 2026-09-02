@@ -14,6 +14,7 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+	bolterrors "go.etcd.io/bbolt/errors"
 )
 
 const (
@@ -26,7 +27,7 @@ const (
 var (
 	// ErrBusy reports that another process held the bbolt lock for the full
 	// operation timeout. A long-running shipper can retry this error.
-	ErrBusy     = bolt.ErrTimeout
+	ErrBusy     = bolterrors.ErrTimeout
 	errNotSpool = errors.New("not a numbat spool")
 
 	metadataBucket = []byte("numbat.spool.meta")
