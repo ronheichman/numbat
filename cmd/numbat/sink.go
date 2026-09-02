@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -328,8 +327,7 @@ func (sink spoolSink) Write(p []byte) (int, error) {
 	if len(p) == 0 || len(p) > maxShipRecordBytes || p[len(p)-1] != '\n' || bytes.Count(p, []byte("\n")) != 1 {
 		return 0, fmt.Errorf("spool sink: record must be one complete NDJSON line of at most %d bytes", maxShipRecordBytes)
 	}
-	record := bytes.TrimSpace(p[:len(p)-1])
-	if len(record) < 2 || record[0] != '{' || record[len(record)-1] != '}' || !json.Valid(record) {
+	if !isShippableRecord(p[:len(p)-1]) {
 		return 0, fmt.Errorf("spool sink: record must be a JSON object")
 	}
 	if err := sink.store.Put(p); err != nil {
