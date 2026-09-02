@@ -2,16 +2,56 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/perplexityai/numbat/internal/spool"
 )
+
+func TestSpoolSinkDoesNotMergeRecordAfterRejectedPartialWrite(t *testing.T) {
+	store := spool.New(filepath.Join(t.TempDir(), "records.spool"))
+	sink := spoolSink{store: store}
+	first := []byte("{\"n\":1}\n")
+	partial := []byte("{\"n\":")
+	second := []byte("{\"n\":2}\n")
+
+	if n, err := sink.Write(first); n != len(first) || err != nil {
+		t.Fatalf("write first record = (%d, %v), want (%d, nil)", n, err, len(first))
+	}
+	if n, err := sink.Write(partial); n != 0 || err == nil {
+		t.Fatalf("write partial record = (%d, %v), want (0, error)", n, err)
+	}
+	if n, err := sink.Write(second); n != len(second) || err != nil {
+		t.Fatalf("write second record = (%d, %v), want (%d, nil)", n, err, len(second))
+	}
+	assertQueuedRecords(t, store, first, second)
+}
+
+func TestHookSpoolRejectsStateDatabasePathBeforeWriting(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "state.db")
+	payload := `{"session_id":"s1","cwd":"/p","tool_name":"Read","tool_input":{"file_path":"/p/file"}}`
+	stdout, stderr, code := runCLIStdin(payload,
+		"hook", "pre-tool", "--agent", "claude", "--emit", "events",
+		"--state-db", statePath,
+		"--output", "spool", "--spool-file", statePath,
+	)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("hook must fail open: exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "--spool-file and --state-db must name different files") {
+		t.Fatalf("stderr = %q, want state/spool collision error", stderr)
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("colliding spool unexpectedly created %q (err=%v)", statePath, err)
+	}
+}
 
 func TestShipSpoolBatchAcknowledgesOnlyDeliveredPrefix(t *testing.T) {
 	store := spool.New(filepath.Join(t.TempDir(), "records.spool"))

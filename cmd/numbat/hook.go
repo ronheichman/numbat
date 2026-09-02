@@ -298,6 +298,13 @@ func handleHook(event string, lc hook.Lifecycle, agent, sourceAgent string, stdi
 	if err != nil {
 		return false, "", "", err
 	}
+	var statePath string
+	if sinks.spool {
+		statePath, err = hookStatePath(opts.stateDB, spoolFile)
+		if err != nil {
+			return false, "", "", err
+		}
+	}
 	sink, err := buildSink(sinkConfig{
 		modes:         opts.modes,
 		defaultMode:   outputModeStdout,
@@ -361,8 +368,9 @@ func handleHook(event string, lc hook.Lifecycle, agent, sourceAgent string, stdi
 	var stateErr error
 	if (opts.sel.findings || opts.enforce) && eng != nil {
 		if seqs := eng.SequenceRules(); len(seqs) > 0 {
-			var statePath string
-			statePath, stateErr = hookStatePath(opts.stateDB, spoolFile)
+			if statePath == "" {
+				statePath, stateErr = hookStatePath(opts.stateDB, spoolFile)
+			}
 			if stateErr == nil {
 				stateDB, stateErr = state.Open(statePath, 250*time.Millisecond)
 			}
