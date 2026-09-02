@@ -466,7 +466,8 @@ for the next request.
 
 For legacy file input, the checkpoint advances only after a `2xx`. Eligible
 records are delivered at least once while the input and its rotations remain
-available. Legacy records larger than 8 MiB are skipped.
+available. Legacy records larger than 8 MiB, and lines that are not a single
+JSON object, are skipped.
 
 Select exactly one input mode. Use spool-only or file-only hook output with
 `ship`. Direct HTTP on the same hook sends each record through both paths.
@@ -516,8 +517,10 @@ tolerate duplicates and use stable record identifiers where present.
 
 `ship` never truncates or rotates a legacy input. Retention remains the
 operator's responsibility. A complete record larger than 8 MiB remains in the
-input but is skipped, so later records can continue. Prefer an existing fleet
-forwarder when one is already available.
+input but is skipped, so later records can continue. A line that is not a single
+JSON object, such as two records glued together by an interrupted append, is
+skipped the same way so one poisoned line cannot stall the queue. Prefer an
+existing fleet forwarder when one is already available.
 
 `--http-auth`, `--http-timeout`, `--http-gzip`, the HMAC header options, and
 `--http-allow-insecure` match the [scan HTTP options](#scan), including the wire

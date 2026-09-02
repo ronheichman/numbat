@@ -69,6 +69,7 @@ type shipRead struct {
 	rotated          bool
 	reset            bool
 	skippedOversized bool
+	skippedMalformed bool
 	guard            []byte
 }
 
@@ -393,10 +394,12 @@ func drainAvailable(ctx context.Context, inputPath, statePath string, cursor shi
 		if len(batch.blob) == 0 {
 			if batch.n > 0 {
 				// readShipBatch reports n>0 with an empty blob only when it
-				// skipped an oversized record; the offset must still advance
-				// past those bytes or the same record blocks the next read.
+				// skipped an oversized or malformed record; the offset must still
+				// advance past those bytes or the same record blocks the next read.
 				if batch.skippedOversized {
 					fmt.Fprintf(stderr, "ship: %s: record at offset %d exceeds %d-byte limit; skipped from HTTP delivery and retained in the input file\n", inputPath, cursor.checkpoint.Offset, maxShipRecordBytes)
+				} else if batch.skippedMalformed {
+					fmt.Fprintf(stderr, "ship: %s: record at offset %d is not a single JSON object; skipped from HTTP delivery and retained in the input file\n", inputPath, cursor.checkpoint.Offset)
 				}
 				drained := cursor.checkpoint.DrainedFileIDs
 				cursor.checkpoint = newShipCheckpoint(
@@ -488,6 +491,7 @@ func readShipBatch(path string, checkpoint shipCheckpoint, maxBytes int64) (ship
 	var buf bytes.Buffer
 	var consumed int64
 	var skipped bool
+	var skippedMalformed bool
 	var skippedGuard []byte
 	for buf.Len() == 0 || int64(buf.Len()) < maxBytes {
 		line, readErr := readShipLine(br, maxShipRecordBytes)
@@ -504,6 +508,19 @@ func readShipBatch(path string, checkpoint shipCheckpoint, maxBytes int64) (ship
 			break
 		}
 		if line.complete {
+			if !isShippableRecord(line.bytes) {
+				// A partial record left by a short append, glued onto the next
+				// record, is not a single JSON object; ingestion would reject the
+				// whole batch on it. Ship any good records buffered so far, then
+				// skip this line on the next empty batch so the queue drains past it.
+				if buf.Len() > 0 {
+					break
+				}
+				consumed += line.consumed
+				skippedMalformed = true
+				skippedGuard = line.bytes
+				break
+			}
 			_, _ = buf.Write(line.bytes)
 			consumed += line.consumed
 		}
@@ -533,6 +550,7 @@ func readShipBatch(path string, checkpoint shipCheckpoint, maxBytes int64) (ship
 		modTime:          info.ModTime(),
 		rotated:          source.rotated,
 		skippedOversized: skipped,
+		skippedMalformed: skippedMalformed,
 		guard:            skippedGuard,
 	}, nil
 }
