@@ -122,8 +122,11 @@ Spool output defaults to `$HOME/.numbat/findings.spool` or
 `$HOME/.numbat/records.spool`. Change it with `--spool-file PATH`.
 
 numbat does not rotate output files or manage host storage. Use a fleet
-forwarder for file output. Supervise `numbat ship` for spool output. Hook HTTP
-requests use a five-second timeout by default; change it with `--http-timeout`.
+forwarder for file output. A short append (for example, a full disk) is rolled
+back and a missing trailing newline is repaired before the next write, so
+records never concatenate onto a partial line. Supervise `numbat ship` for
+spool output. Hook HTTP requests use a five-second timeout by default; change it
+with `--http-timeout`.
 Agents normally wait for the callback process to exit, so direct HTTP adds
 request latency on the hook path. HTTP auth secrets are never written into hook
 settings. When `--http-auth` is `bearer` or `hmac-sha256`, the installed hook reads
