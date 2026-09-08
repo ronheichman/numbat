@@ -135,9 +135,6 @@ func TestSequenceStepBounds(t *testing.T) {
 		if err == nil || got.Match || got.EnforcementMatch {
 			t.Fatalf("EvalStep(%d) = %v, %v; want false and error", step, got, err)
 		}
-		if s.StepUsesShellCommands(step) {
-			t.Fatalf("StepUsesShellCommands(%d) = true, want false", step)
-		}
 	}
 }
 

@@ -76,34 +76,33 @@ literal input and can include comments, quoted examples, or other text the
 shell would not execute. Use the parsed `shell_commands` view when a deny
 depends on executable command semantics.
 
-Detection parses a broad set of shell structures. Blocking keeps the existing
-static requirements for executable tokens, arguments, assignments, redirect
-targets, wrappers, previews, parser diagnostics, and projection limits.
+For POSIX input, a candidate is one parsed command or the direct members of one
+`|` or `|&` pipeline. Each candidate must meet the existing checks for static
+arguments, assignments, redirect targets, wrappers, and previews. An unsafe
+pipeline also excludes its nested substitutions. Malformed top-level input and
+truncated command lists stay detection-only.
 
-For compound POSIX input, `numbat` forms candidates from the existing
-`mvdan.cc/sh/v3/syntax` result. One parsed command forms one candidate. Direct
-members of one `|` or `|&` pipeline form one candidate together and keep the
-existing pipeline safety checks.
+Sequencing, groups, subshells, background commands, negation, and substitutions
+do not disable an otherwise eligible candidate. Both sides of `&&` and `||`
+count as requested intent, even when one side cannot execute. Function calls
+remain detection-only. Eligible commands in an invoked function body are
+separate candidates.
 
-The forms `;`, `&&`, `||`, groups, subshells, background commands, negation,
-substitutions, and heredocs do not disable an otherwise eligible candidate.
-Both sides of `&&` and `||` are checked because the input requests both
-commands, even when one side might not run. Statically resolved shell function
-calls remain detection-only; eligible commands in an invoked function body are
-considered separately.
+Detection evaluates the complete command list. For an `enforce: true` rule that
+uses `shell_commands`, enforcement evaluates the same expression against each
+eligible candidate. An input that passes the existing whole-input safety checks
+uses its complete list for both decisions. Other event fields retain their full
+values.
 
-For an `enforce: true` rule that uses `shell_commands`, CEL evaluates the
-complete rule against eligible candidates until one returns true. A true result
-denies the complete tool input. A candidate error suppresses enforcement only
-when no candidate returns true. Detection still evaluates the complete command
-list. A full-list detection error remains a diagnostic, but it does not
-suppress a clean candidate deny. Rules that do not use `shell_commands` keep
-their existing behavior.
+A candidate match produces a finding and can deny the complete tool
+input, even when full-list detection fails. Detection errors remain diagnostics.
+A candidate error suppresses enforcement only when no candidate returns true.
+Rules without `shell_commands` keep their existing behavior.
 
-An unsafe command or direct pipeline remains detection-only. A substitution
-inside an unsafe direct pipeline cannot become an independent enforcement
-candidate. `eval`, inline child interpreters such as `sh -c`, and PowerShell or
-`cmd.exe` compound input remain detection-only.
+Scripts parsed from `eval` or child interpreter input, including heredocs, remain
+detection-only. Compound PowerShell and `cmd.exe` input also remain
+detection-only. An independent eligible POSIX command can still enforce beside
+an interpreter invocation.
 
 numbat recognizes explicit `-WhatIf` and a statically visible
 `$WhatIfPreference = $true` for known cmdlets. It does not infer ambient

@@ -8,10 +8,8 @@
 //
 //   - High precision. Agent, sensor source, session id, and project path all
 //     partition the window; artifact events additionally partition on their
-//     exact source path. A step predicate that errors evaluates as false,
-//     and a wall-clock window whose endpoint timestamps are missing or
-//     disordered never matches: every ambiguity resolves to a documented false
-//     negative, never a fabricated chain.
+//     exact source path. A step requires a clean detection or candidate match.
+//     Missing or disordered endpoint timestamps prevent a wall-clock match.
 //   - Determinism. Matching is a pure function of the observed event order
 //     and the events' own timestamps. The tracker never reads the wall clock,
 //     so identical input yields identical matches on every run.
@@ -195,11 +193,9 @@ func NewTracker(rules []*rule.SequenceRule, cfg Config) *Tracker {
 }
 
 // Observe feeds one event through every sequence rule and returns its detection
-// and enforcement matches in rule load order. Step-evaluation errors are joined
-// into the returned error alongside any matches (mirroring Engine.Eval); an
-// erroring step counts as false, so an error can suppress a chain but never
-// invent one. Observe is nil-safe — a nil Tracker observes nothing — so a
-// caller whose rule set has no sequences skips the nil check.
+// and enforcement matches in rule load order. Step-evaluation errors can
+// accompany a clean candidate match, as in Engine.Eval. A nil Tracker observes
+// nothing, so callers with no sequence rules can skip the nil check.
 func (t *Tracker) Observe(ev model.Event) (Observation, error) {
 	if t == nil {
 		return Observation{}, nil

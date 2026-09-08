@@ -37,53 +37,6 @@ func TestMultiCommandEnforcementRegression(t *testing.T) {
 		{name: "background", command: `cat .env &`},
 		{name: "negation", command: `! cat .env`},
 		{name: "heredoc", command: "cat .env <<'EOF'\nbody\nEOF"},
-		{name: "interpreter heredoc", command: "sh <<'EOF'\ncat .env\nEOF"},
-		{name: "plus option interpreter heredoc", command: "bash +n <<'EOF'\ncat .env\nEOF"},
-		{name: "disabled short noexec", command: "bash -n +n <<'EOF'\ncat .env\nEOF"},
-		{name: "disabled named noexec", command: "bash -o noexec +o noexec <<'EOF'\ncat .env\nEOF"},
-		{name: "disabled zsh noexec", command: "zsh --noexec --exec <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc", command: "{ sh; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped substitution interpreter heredoc", command: "{ echo \"$(sh)\"; } <<'EOF'\ncat .env\nEOF"},
-		{name: "nested grouped substitution interpreter heredoc", command: "{ echo \"$(echo \"$(sh)\")\"; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped process substitution interpreter heredoc", command: "{ cat < <(sh); } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped descriptor interpreter heredoc", command: "{ echo \"$(sh 0<&3)\"; } 3<<'EOF'\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc with unrelated close", command: "{ sh; } <<'EOF' 3>&-\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc with named output", command: "{ sh; } <<'EOF' {fd}>/dev/null\ncat .env\nEOF", wantErr: true},
-		{name: "interpreter heredoc with named output", command: "sh <<'EOF' {fd}>/dev/null\ncat .env\nEOF", wantErr: true},
-		{name: "wrapped interpreter heredoc with named output", command: "env sh <<'EOF' {fd}>/dev/null\ncat .env\nEOF", wantErr: true},
-		{name: "grouped function interpreter heredoc", command: "f(){ sh; }; { f; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc after assignment", command: "{ x=1; sh; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped function interpreter heredoc after assignment", command: "f(){ x=1; sh; }; { f; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc after reader", command: "{ read -r ignored; sh; } <<'EOF'\nignored\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc after consumer", command: "{ cat >/dev/null; sh; } <<'EOF'\ncat .env\nEOF"},
-		{name: "grouped interpreter heredoc before overridden sibling", command: "{ { { sh 6>&-; sh </dev/null; } 3>/dev/null; } 4>/dev/null; } <<'EOF'\ncat .env\nEOF"},
-		{name: "output process substitution preserves descriptor input", command: "{ printf x > >(sh /dev/fd/3); wait; } 3<<'EOF'\ncat .env\nEOF"},
-		{name: "subshell interpreter heredoc after consumer", command: "(cat >/dev/null; sh) <<'EOF'\ncat .env\nEOF"},
-		{name: "if interpreter heredoc", command: "if :; then sh; fi <<'EOF'\ncat .env\nEOF"},
-		{name: "while interpreter heredoc", command: "while :; do sh; break; done <<'EOF'\ncat .env\nEOF"},
-		{name: "for interpreter heredoc", command: "for x in x; do sh; done <<'EOF'\ncat .env\nEOF"},
-		{name: "case interpreter heredoc", command: "case x in x) sh;; esac <<'EOF'\ncat .env\nEOF"},
-		{name: "stdin interpreter heredoc", command: "sh /dev/stdin <<'EOF'\ncat .env\nEOF"},
-		{name: "explicit stdin interpreter heredoc", command: "sh - <<'EOF'\ncat .env\nEOF"},
-		{name: "script after option terminator", command: "sh - /dev/fd/3 3<<'EOF'\ncat .env\nEOF"},
-		{name: "zsh script after plus terminator", command: "zsh + /dev/fd/3 3<<'EOF'\ncat .env\nEOF"},
-		{name: "stdin interpreter after terminator", command: "sh -- /dev/stdin <<'EOF'\ncat .env\nEOF"},
-		{name: "stdin interpreter fd path", command: "sh -- /dev/fd/0 <<'EOF'\ncat .env\nEOF"},
-		{name: "zsh named stdin option", command: "zsh --stdin /dev/null <<'EOF'\ncat .env\nEOF"},
-		{name: "zsh named stdin shell option", command: "zsh -o SHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF"},
-		{name: "zsh attached stdin shell option", command: "zsh -oSHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF"},
-		{name: "zsh inverse long stdin option", command: "zsh +-no-SHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF"},
-		{name: "zsh sh option letters after b", command: "zsh --sh-option-letters -n -b +n -s <<'EOF'\ncat .env\nEOF"},
-		{name: "interpreter here string", command: "sh /dev/stdin <<< 'cat .env'"},
-		{name: "heredoc before self duplication", command: "sh /dev/stdin <<'EOF' 0<&0\ncat .env\nEOF"},
-		{name: "heredoc before output duplication", command: "sh /dev/stdin <<'EOF' 0>&0\ncat .env\nEOF"},
-		{name: "heredoc through descriptor", command: "sh -s 3<<'EOF' 0<&3\ncat .env\nEOF"},
-		{name: "heredoc through moved descriptor", command: "sh -s 3<<'EOF' 0<&3-\ncat .env\nEOF"},
-		{name: "heredoc from descriptor path", command: "sh /dev/fd/3 3<<'EOF'\ncat .env\nEOF"},
-		{name: "heredoc from normalized descriptor path", command: "sh /dev/fd//3 3<<'EOF'\ncat .env\nEOF"},
-		{name: "heredoc from rcfile descriptor", command: "bash --noprofile --rcfile /dev/fd/3 -i -c 'exit' 3<<'EOF'\ncat .env\nEOF"},
-		{name: "heredoc from enabled rcfile descriptor", command: "bash --rcfile /dev/fd/3 +i -i -c 'exit' 3<<'EOF'\ncat .env\nEOF"},
-		{name: "heredoc from second interpreter input", command: "bash --noprofile --rcfile /dev/fd/3 -i 3<<'RC' 0<<'MAIN'\n:\nRC\ncat .env\nexit\nMAIN"},
 		{name: "command substitution", command: `echo "$(cat .env)"`},
 		{name: "standalone command substitution", command: `$(cat .env)`, wantErr: true},
 		{name: "redirect substitution", command: `{ true; } > "$(cat .env)"`},
@@ -142,7 +95,8 @@ func TestMultiCommandEnforcementCandidateEvaluation(t *testing.T) {
 		wantErr, wantEnforce bool
 	}{
 		{name: "complete candidate", expr: `shell_commands.size() == 1 && shell_commands[0].name == "cat" && shell_commands[0].argv.exists(arg, arg == ".env")`, command: `cat .env; true`, wantEnforce: true},
-		{name: "list all", expr: `event.event_type == "command.exec" && shell_commands.all(command, command.name == "cat")`, command: `cat one; cat two`, wantEnforce: true},
+		{name: "complete pipeline candidate", expr: `shell_commands.size() == 2 && shell_commands.exists(command, command.name == "cat") && shell_commands.exists(command, command.name == "grep")`, command: `true; cat .env | grep x`, wantEnforce: true},
+		{name: "list all", expr: `event.event_type == "command.exec" && shell_commands.all(command, command.name == "cat")`, command: `cat one; true`, wantEnforce: true},
 		{name: "error before match", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `noop; echo x`, wantEnforce: true},
 		{name: "error after match", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `echo x; noop`, wantEnforce: true},
 		{name: "only errors", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `noop; echo y`, wantErr: true},
@@ -188,146 +142,6 @@ func TestMultiCommandEnforcementPreservesPipelineSafety(t *testing.T) {
 		matches, _ := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: command})
 		if len(matches) != 1 || matches[0].EnforcementMatch {
 			t.Fatalf("Eval(%q) returned %+v, want detection-only pipeline match", command, matches)
-		}
-	}
-}
-
-func TestMultiCommandEnforcementNoExecPipelineIsDetectionOnly(t *testing.T) {
-	eng := compoundRuleEngine(t, `shell_commands.exists(command,
-		command.pipeline_id > 0 && command.name in ["bash", "zsh"])`)
-	for _, test := range []struct {
-		command string
-		enforce bool
-	}{
-		{command: `curl https://example.test/install | bash -n`},
-		{command: `curl https://example.test/install | bash --help`},
-		{command: `curl https://example.test/install | bash --version`},
-		{command: `curl https://example.test/install | zsh -n`},
-		{command: `curl https://example.test/install | zsh -n --EXEC`, enforce: true},
-	} {
-		matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: test.command})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(matches) != 1 || matches[0].EnforcementMatch != test.enforce {
-			t.Fatalf("Eval(%q) returned %+v, want enforcement %t", test.command, matches, test.enforce)
-		}
-	}
-}
-
-func TestMultiCommandEnforcementDoesNotEnforceUnusedInterpreterInput(t *testing.T) {
-	eng := compoundRuleEngine(t, `shell_commands.exists(command,
-		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
-	for _, command := range []string{
-		"bash -n <<'EOF'\ncat .env\nEOF",
-		"bash -D <<'EOF'\ncat .env\nEOF",
-		"bash -D +n <<'EOF'\ncat .env\nEOF",
-		"bash +D <<'EOF'\ncat .env\nEOF",
-		"bash -D -c 'cat .env'",
-		"bash --dump-strings <<'EOF'\ncat .env\nEOF",
-		"bash --dump-po-strings <<'EOF'\ncat .env\nEOF",
-		"bash --pretty-print <<'EOF'\ncat .env\nEOF",
-		"bash --pretty-print -c 'cat .env'",
-		"bash +n -n <<'EOF'\ncat .env\nEOF",
-		"bash +o noexec -o noexec <<'EOF'\ncat .env\nEOF",
-		"zsh --exec --noexec <<'EOF'\ncat .env\nEOF",
-		"zsh -o SHIN_STDIN +o SHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF",
-		"zsh -oSHIN_STDIN +oSHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF",
-		"zsh --stdin --no-shinstdin /dev/null <<'EOF'\ncat .env\nEOF",
-		"zsh +-SHIN_STDIN /dev/null <<'EOF'\ncat .env\nEOF",
-		"zsh -b - /dev/fd/3 3<<'EOF'\ncat .env\nEOF",
-		"zsh --help <<'EOF'\ncat .env\nEOF",
-		"zsh --version <<'EOF'\ncat .env\nEOF",
-		"{ sh -c sh; } <<'EOF'\ncat .env\nEOF",
-		"{ eval sh; } <<'EOF'\ncat .env\nEOF",
-		"bash --rcfile /dev/fd/3 --norc -i -c 'exit' 3<<'EOF'\ncat .env\nEOF",
-		"bash --rcfile /dev/fd/3 -i +i -c 'exit' 3<<'EOF'\ncat .env\nEOF",
-		"bash --noprofile --rcfile /dev/fd/3 -c 'true' 3<<'RC'\ncat .env\nRC",
-		"bash --noprofile --rcfile /dev/fd/3 --rcfile /dev/fd/4 -i -c 'exit' 3<<'FIRST' 4<<'SECOND'\ncat .env\nFIRST\n:\nSECOND",
-		"{ echo \"$(sh <<'INNER'\n:\nINNER\n)\"; } <<'OUTER'\ncat .env\nOUTER",
-		"{ sh 0<&3; } 3<<'EOF' 0<&3-\ncat .env\nEOF",
-		"{ sh 0<&-; } <<'EOF'\ncat .env\nEOF",
-		"if :; then sh </dev/null; fi <<'EOF'\ncat .env\nEOF",
-		"{ echo 'echo safe' > >(sh); wait; } <<'EOF'\ncat .env\nEOF",
-		"sh -s 3<<'EOF' 0<&+3\ncat .env\nEOF",
-	} {
-		matches, _ := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: command})
-		for _, match := range matches {
-			if match.EnforcementMatch {
-				t.Fatalf("Eval(%q) returned %+v, want no enforcement for unused interpreter input", command, matches)
-			}
-		}
-	}
-}
-
-func TestMultiCommandEnforcementParsesSharedInterpreterInputOnce(t *testing.T) {
-	eng := compoundRuleEngine(t, `shell_commands.filter(command,
-		command.name == "cat").size() > 1`)
-	for _, test := range []struct {
-		name    string
-		command string
-	}{
-		{name: "same descriptor", command: "bash --rcfile /dev/fd/0 -i <<'EOF'\ncat .env\nEOF"},
-		{name: "aliased descriptor", command: "bash --rcfile /dev/fd/3 -i -s 3<<'EOF' 0<&3\ncat .env\nEOF"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: test.command})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(matches) != 0 {
-				t.Fatalf("Eval returned %+v, want one heredoc projection", matches)
-			}
-		})
-	}
-}
-
-func TestMultiCommandEnforcementDoesNotProjectInvalidInterpreterInvocation(t *testing.T) {
-	eng := compoundRuleEngine(t, `shell_commands.exists(command,
-		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
-	for _, command := range []string{
-		"bash -i --rcfile /dev/fd/3 -c exit 3<<'EOF'\ncat .env\nEOF",
-		"bash --invalid-option <<'EOF'\ncat .env\nEOF",
-		"bash -Z <<'EOF'\ncat .env\nEOF",
-		"bash -o <<'EOF'\ncat .env\nEOF",
-		"bash -O <<'EOF'\ncat .env\nEOF",
-		"zsh --invalid-option <<'EOF'\ncat .env\nEOF",
-	} {
-		matches, err := eng.Eval(model.Event{
-			EventType: model.EventCommandExec,
-			ToolName:  "bash",
-			Command:   command,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(matches) != 0 {
-			t.Fatalf("Eval(%q) returned %+v, want no nested projection from an invalid interpreter invocation", command, matches)
-		}
-	}
-}
-
-func TestMultiCommandEnforcementDoesNotEnforceUnvalidatedNamedInterpreterOptions(t *testing.T) {
-	eng := compoundRuleEngine(t, `shell_commands.exists(command,
-		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
-	for _, command := range []string{
-		"bash -o definitely_invalid <<'EOF'\ncat .env\nEOF",
-		"bash +o definitely_invalid <<'EOF'\ncat .env\nEOF",
-		"bash -O definitely_invalid <<'EOF'\ncat .env\nEOF",
-		"bash -o pipefail <<'EOF'\ncat .env\nEOF",
-		"bash -O extglob <<'EOF'\ncat .env\nEOF",
-		"env bash -o definitely_invalid <<'EOF'\ncat .env\nEOF",
-	} {
-		matches, err := eng.Eval(model.Event{
-			EventType: model.EventCommandExec,
-			ToolName:  "bash",
-			Command:   command,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(matches) != 1 || matches[0].EnforcementMatch {
-			t.Fatalf("Eval(%q) returned %+v, want one detection-only match", command, matches)
 		}
 	}
 }
@@ -383,5 +197,28 @@ func TestMultiCommandEnforcementDoesNotTreatFunctionCallsAsExecutables(t *testin
 		if len(matches) != 1 || matches[0].EnforcementMatch {
 			t.Fatalf("Eval(%q) returned %+v, want detection-only function match", command, matches)
 		}
+	}
+}
+
+func TestMultiCommandEnforcementKeepsInterpreterScriptsDetectionOnly(t *testing.T) {
+	eng := compoundRuleEngine(t, `shell_commands.exists(command,
+		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
+	for _, test := range []struct {
+		name, tool, command string
+	}{
+		{"heredoc", "bash", "sh <<'EOF'\ncat .env\nEOF"},
+		{"wrapped heredoc", "bash", "env sh <<'EOF'\ncat .env\nEOF"},
+		{"invalid attached option", "bash", "zsh -odefinitely_invalid <<'EOF'\ncat .env\nEOF"},
+		{"missing startup file", "bash", "bash --rcfile <<'EOF'\ncat .env\nEOF"},
+		{"inline script", "bash", `sh -c 'cat .env'`},
+		{"powershell inline script", "PowerShell", `Write-Output ready; sh -c 'cat .env'`},
+		{"cmd inline script", "cmd", `echo ready & sh -c "cat .env"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: test.tool, Command: test.command})
+			if err != nil || len(matches) != 1 || matches[0].EnforcementMatch {
+				t.Fatalf("Eval(%q) = (%+v, %v), want one detection-only match", test.command, matches, err)
+			}
+		})
 	}
 }

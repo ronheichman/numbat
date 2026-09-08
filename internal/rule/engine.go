@@ -81,11 +81,13 @@ func (s *SequenceRule) WithinEvents() int { return s.withinEvents }
 // MaxMatches returns the per-(rule, session) finding cap, always >= 1.
 func (s *SequenceRule) MaxMatches() int { return s.maxMatches }
 
+// StepEvaluation keeps a detection or candidate match separate from permission to enforce it.
 type StepEvaluation struct {
 	Match            bool
 	EnforcementMatch bool
 }
 
+// EvalStep can return a clean candidate match alongside a full-list diagnostic.
 func (s *SequenceRule) EvalStep(i int, activations SequenceActivations) (StepEvaluation, error) {
 	if i < 0 || i >= len(s.steps) {
 		return StepEvaluation{}, fmt.Errorf("rule %q: step index %d out of range", s.rule.ID, i)
@@ -107,15 +109,6 @@ func (s *SequenceRule) EvalStep(i int, activations SequenceActivations) (StepEva
 		Match:            evaluation.detectionMatch || evaluation.enforcementMatch,
 		EnforcementMatch: evaluation.enforcementMatch,
 	}, errors.Join(errs...)
-}
-
-// StepUsesShellCommands reports whether step i depends on the derived command
-// projection.
-func (s *SequenceRule) StepUsesShellCommands(i int) bool {
-	if i < 0 || i >= len(s.steps) {
-		return false
-	}
-	return s.steps[i].usesShellCommands
 }
 
 // newEnv builds the CEL environment shared by every rule. `event` uses emitted
