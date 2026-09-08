@@ -151,6 +151,7 @@ type shellAnalyzer struct {
 	unsafeStatements          map[int64]bool
 	statementParents          map[int64]int64
 	halt                      bool
+	resolved                  resolvedExecutables
 }
 
 type shellAnalysis struct {
@@ -188,7 +189,7 @@ func analyzeShellCommandsDetailed(source string, dialect commandDialect) shellAn
 		unsafeStatements: make(map[int64]bool),
 		statementParents: make(map[int64]int64),
 	}
-	a.parseDialect(source, dialect, 0, nil)
+	a.parseDialectUnderRedirects(source, dialect, 0, nil, 0, nil, true)
 	err := errors.Join(a.issues...)
 	enforcementSafe := !a.enforcementUnsafe && len(a.commands) > 0
 	if enforcementSafe {
@@ -229,10 +230,13 @@ func commandDialectHint(ev model.Event) commandDialect {
 }
 
 func (a *shellAnalyzer) parseDialect(source string, dialect commandDialect, depth int, wrappers []ShellWrapper) {
-	a.parseDialectUnderRedirects(source, dialect, depth, wrappers, 0, nil)
+	a.parseDialectUnderRedirects(source, dialect, depth, wrappers, 0, nil, false)
 }
 
-func (a *shellAnalyzer) parseDialectUnderRedirects(source string, dialect commandDialect, depth int, wrappers []ShellWrapper, parent int64, inheritedRedirects []*syntax.Redirect) {
+// resolvable is true for the original input and for a nested script whose
+// interpreter call passed resolvableScript; text that another shell expanded
+// first never resolves.
+func (a *shellAnalyzer) parseDialectUnderRedirects(source string, dialect commandDialect, depth int, wrappers []ShellWrapper, parent int64, inheritedRedirects []*syntax.Redirect, resolvable bool) {
 	if a.halt {
 		return
 	}
@@ -278,7 +282,14 @@ func (a *shellAnalyzer) parseDialectUnderRedirects(source string, dialect comman
 	if !posixEnforcementShapeSafe(file) {
 		a.enforcementUnsafe = true
 	}
+
+	saved := a.resolved
+	a.resolved = nil
+	if resolvable {
+		a.resolved = resolveTopLevelAssignments(file)
+	}
 	a.walk(source, file, depth, make(map[string]*syntax.Stmt), make(map[string]bool), wrappers, parent, inheritedRedirects)
+	a.resolved = saved
 }
 
 func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functions map[string]*syntax.Stmt, activeFunctions map[string]bool, wrappers []ShellWrapper, parent int64, inheritedRedirects []*syntax.Redirect) {
@@ -349,6 +360,8 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 				}
 				return true
 			}
+
+			call = resolvedCall(call, a.resolved)
 			command, add, err := projectPOSIXCommand(source, call.Args, call.Assigns, node.Redirs, wrappers, ctx)
 			if err != nil {
 				a.report(err)
@@ -421,12 +434,13 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 			}
 
 			redirects := append(relations.inheritedRedirects[node], node.Redirs...)
+			resolvable := a.resolved != nil && resolvableScript(call, args, redirects)
 			if !command.FunctionCall {
 				if script, dialect, wrapper, ok, err := wrapperScript(source, args); err != nil {
 					a.report(err)
 				} else if ok {
 					innerWrappers := append(cloneWrappers(commandWrappers), wrapper)
-					a.parseDialectUnderRedirects(script, dialect, depth+1, innerWrappers, ctx.statementID, redirects)
+					a.parseDialectUnderRedirects(script, dialect, depth+1, innerWrappers, ctx.statementID, redirects, resolvable)
 					a.markCommandsUnsafe(statementStart)
 				}
 				if scripts := interpreterHeredocs(invocation.inputFDs, redirects); len(scripts) > 0 {
@@ -438,7 +452,7 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 						a.markCommandsUnsafe(statementStart)
 						for _, script := range scripts {
 							innerStart := len(a.commands)
-							a.parseDialectUnderRedirects(script, dialectPOSIX, depth+1, innerWrappers, ctx.statementID, nil)
+							a.parseDialectUnderRedirects(script, dialectPOSIX, depth+1, innerWrappers, ctx.statementID, nil, resolvable)
 							if ctx.pipelineID != 0 || !wrapperSafe || invocation.inputEnforcementUnsafe {
 								a.markCommandsUnsafe(innerStart)
 							}
@@ -448,7 +462,7 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 			}
 			if allowShellBuiltins {
 				if script, ok := evalScript(source, args); ok {
-					a.parseDialectUnderRedirects(script, dialectPOSIX, depth+1, commandWrappers, ctx.statementID, redirects)
+					a.parseDialectUnderRedirects(script, dialectPOSIX, depth+1, commandWrappers, ctx.statementID, redirects, false)
 					a.markCommandsUnsafe(statementStart)
 				}
 			}
