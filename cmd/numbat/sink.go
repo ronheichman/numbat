@@ -88,8 +88,8 @@ var httpOnlyFlags = map[string]bool{
 // buildSink validates the output flag combination and constructs the records
 // sink. stdout (the default) wraps the provided writer without taking ownership
 // of it. File, spool, and HTTP sinks require their respective flags. File and
-// spool are mutually exclusive because one path cannot safely carry both
-// formats. Cross-mode flags are rejected so a mistaken invocation fails loudly.
+// spool are mutually exclusive so one run has one durable local record stream.
+// Cross-mode flags are rejected so a mistaken invocation fails loudly.
 // HTTP auth secrets are read from the environment here, never from a flag.
 func buildSink(cfg sinkConfig, stdout io.Writer) (output.Sink, error) {
 	sel, err := parseOutputSinks(cfg.modes, cfg.defaultMode)
