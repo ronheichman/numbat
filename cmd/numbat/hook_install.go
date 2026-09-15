@@ -450,6 +450,12 @@ func installRuntimeArgs(cfg installRuntimeConfig, home string) ([]string, error)
 				return nil, fmt.Errorf("resolve --spool-file %q: %w", cfg.spool, err)
 			}
 		}
+		// Paths with unavailable environment variables remain deferred to the runtime.
+		if expandedPath, expandErr := expandHookPath(path); expandErr == nil {
+			if _, err := hookStatePath("", expandedPath); err != nil {
+				return nil, err
+			}
+		}
 		args = append(args, "--spool-file", path)
 	}
 	if sinks.http {

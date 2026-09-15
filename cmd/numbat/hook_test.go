@@ -790,6 +790,54 @@ func TestHookInstallWiresEmitAndOutputFlags(t *testing.T) {
 	}
 }
 
+func TestHookInstallRejectsSpoolStateCollisionBeforeWriting(t *testing.T) {
+	home := t.TempDir()
+	setTestHome(t, home)
+	statePath := filepath.Join(home, ".numbat", "state.db")
+	tests := []struct {
+		name      string
+		spoolPath string
+		collision bool
+	}{
+		{name: "default state path", spoolPath: statePath, collision: true},
+		{name: "runtime-expanded state path", spoolPath: "~/.numbat/state.db", collision: true},
+		{name: "separate spool path", spoolPath: filepath.Join(home, ".numbat", "records.spool")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			settingsPath := filepath.Join(home, strings.ReplaceAll(tt.name, " ", "-"), "settings.json")
+			original := []byte("{\"permissions\":{\"allow\":[\"Read\"]}}\n")
+			if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(settingsPath, original, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, stderr, code := runCLI("hook", "install", "--agent", "claude", "--settings", settingsPath,
+				"--output", "spool", "--spool-file", tt.spoolPath)
+			if !tt.collision {
+				if code != 0 {
+					t.Fatalf("install exit = %d, stderr=%q", code, stderr)
+				}
+				for _, command := range claudeInstalledCommands(t, settingsPath) {
+					if !strings.Contains(command, tt.spoolPath) {
+						t.Fatalf("installed command = %q, want spool path %q", command, tt.spoolPath)
+					}
+				}
+				return
+			}
+			if code != 2 || !strings.Contains(stderr, "--spool-file and --state-db must name different files") {
+				t.Fatalf("install exit = %d, stderr=%q, want state/spool collision error", code, stderr)
+			}
+			if got, err := os.ReadFile(settingsPath); err != nil || !bytes.Equal(got, original) {
+				t.Fatalf("settings after rejected install = %q, err=%v; want original %q", got, err, original)
+			}
+		})
+	}
+}
+
 func TestHookInstallWiresCustomRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	rulesDir := filepath.Join(t.TempDir(), "custom rules")
