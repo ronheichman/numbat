@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -322,6 +323,9 @@ func TestHTTPSinkServerError(t *testing.T) {
 	err = sink.Close()
 	if err == nil || !strings.Contains(err.Error(), "server returned 500") {
 		t.Fatalf("expected 500 error surfaced through Close, got %v", err)
+	}
+	if status, ok := HTTPStatusCode(fmt.Errorf("wrapped: %w", err)); !ok || status != http.StatusInternalServerError {
+		t.Fatalf("HTTPStatusCode() = %d, %t, want 500, true", status, ok)
 	}
 	// The response body must NOT be reflected into the error/diagnostics.
 	if strings.Contains(err.Error(), secretBody) {

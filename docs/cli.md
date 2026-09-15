@@ -492,6 +492,14 @@ active file; a segment deleted during an outage cannot be recovered.
 Changing the endpoint or losing valid state replays retained records. Receivers
 must tolerate duplicates, using stable record identifiers where present.
 
+When a receiver returns HTTP `413`, `ship` retries smaller requests split only
+at NDJSON record boundaries. It checkpoints every accepted prefix before
+attempting the remaining suffix. Splitting continues until delivery succeeds or
+the rejected request contains one record. A single rejected record remains
+unacknowledged and blocks later records, with its byte offset and size reported
+on stderr. Other HTTP failures and ambiguous transport errors keep their full
+unacknowledged request eligible for replay.
+
 `ship` never truncates or rotates the input. Retention remains the operator's
 responsibility, and undelivered records are only as durable as that file and its
 host. A complete record larger than 8 MiB remains in the input but is skipped
