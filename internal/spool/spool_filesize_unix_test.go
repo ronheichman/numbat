@@ -17,27 +17,23 @@ import (
 )
 
 const (
-	spoolDiskFullHelper = "NUMBAT_SPOOL_DISKFULL_HELPER"
-	spoolDiskFullPath   = "NUMBAT_SPOOL_DISKFULL_PATH"
-	spoolDiskFullLimit  = "NUMBAT_SPOOL_DISKFULL_LIMIT"
+	spoolFileSizeHelper = "NUMBAT_SPOOL_FILESIZE_HELPER"
+	spoolFileSizePath   = "NUMBAT_SPOOL_FILESIZE_PATH"
+	spoolFileSizeLimit  = "NUMBAT_SPOOL_FILESIZE_LIMIT"
 	recordBefore        = "{\"record_type\":\"event\",\"event_id\":\"before\"}\n"
 	recordAfter         = "{\"record_type\":\"event\",\"event_id\":\"after\"}\n"
 )
 
-// TestPutOnFullDiskCommitsNothing reproduces the failure that corrupted the
-// legacy append file: a write that cannot grow its backing file. A short or
-// failed append left a partial NDJSON line that the next record concatenated
-// with. bbolt commits are atomic, so a Put that cannot grow the database must
-// leave the store byte-identical to its pre-Put state and stay usable once space
-// is available.
+// TestPutAtFileSizeLimitDoesNotCommit exercises a transaction that cannot grow
+// its backing file. The failed Put must not become visible, and the store must
+// remain usable after the limit no longer applies.
 //
 // RLIMIT_FSIZE, set in a child process so the cap cannot disturb the test
-// harness, makes any file growth fail deterministically without a real full
-// filesystem. A multi-megabyte record forces bbolt to grow the database past the
-// cap during commit.
-func TestPutOnFullDiskCommitsNothing(t *testing.T) {
-	if os.Getenv(spoolDiskFullHelper) == "1" {
-		runDiskFullPutHelper()
+// harness, makes file growth fail with EFBIG; it does not simulate ENOSPC. A
+// multi-megabyte record forces bbolt to grow the database during commit.
+func TestPutAtFileSizeLimitDoesNotCommit(t *testing.T) {
+	if os.Getenv(spoolFileSizeHelper) == "1" {
+		runFileSizeLimitedPutHelper()
 		return
 	}
 
@@ -53,11 +49,11 @@ func TestPutOnFullDiskCommitsNothing(t *testing.T) {
 
 	// Cap the child at the current database size so any growth during commit
 	// fails, then attempt a record far larger than any bbolt pre-allocation.
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPutOnFullDiskCommitsNothing$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPutAtFileSizeLimitDoesNotCommit$")
 	cmd.Env = append(os.Environ(),
-		spoolDiskFullHelper+"=1",
-		spoolDiskFullPath+"="+path,
-		spoolDiskFullLimit+"="+strconv.FormatInt(info.Size(), 10),
+		spoolFileSizeHelper+"=1",
+		spoolFileSizePath+"="+path,
+		spoolFileSizeLimit+"="+strconv.FormatInt(info.Size(), 10),
 	)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -67,43 +63,42 @@ func TestPutOnFullDiskCommitsNothing(t *testing.T) {
 		t.Fatalf("child did not report a failed Put: %s", out)
 	}
 
-	// The failed Put must have committed none of its bytes: the store still holds
-	// exactly the seed record, with no partial or trailing fragment.
+	// The failed Put is not visible: the queue still contains only the seed.
 	assertSpoolRecords(t, store, recordBefore)
 
-	// The store remains usable once space is available; the next record appends
-	// cleanly after the seed record rather than gluing onto a partial write.
+	// The parent process is not file-size-limited, so the queue can accept another
+	// record and preserve FIFO order.
 	if err := store.Put([]byte(recordAfter)); err != nil {
-		t.Fatalf("Put after recovered space: %v", err)
+		t.Fatalf("Put after file-size limit: %v", err)
 	}
 	assertSpoolRecords(t, store, recordBefore, recordAfter)
 }
 
-func runDiskFullPutHelper() {
+func runFileSizeLimitedPutHelper() {
 	// Exceeding RLIMIT_FSIZE raises SIGXFSZ, whose default action kills the
 	// process; ignore it so the offending write returns EFBIG instead.
 	signal.Ignore(syscall.SIGXFSZ)
-	limit, err := strconv.ParseInt(os.Getenv(spoolDiskFullLimit), 10, 64)
+	limit, err := strconv.ParseInt(os.Getenv(spoolFileSizeLimit), 10, 64)
 	if err != nil {
-		reportDiskFullHelper("bad-limit:", err)
+		reportFileSizeHelper("bad-limit:", err)
 	}
 	rlimit := syscall.Rlimit{Cur: uint64(limit), Max: uint64(limit)}
 	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &rlimit); err != nil {
-		reportDiskFullHelper("setrlimit-failed:", err)
+		reportFileSizeHelper("setrlimit-failed:", err)
 	}
 	record := make([]byte, 0, 4<<20)
 	record = append(record, []byte("{\"record_type\":\"event\",\"event_id\":\"big\",\"payload\":\"")...)
 	record = append(record, bytes.Repeat([]byte("a"), 4<<20)...)
 	record = append(record, []byte("\"}\n")...)
-	if err := spool.New(os.Getenv(spoolDiskFullPath)).Put(record); err != nil {
-		reportDiskFullHelper("put-failed:", err)
+	if err := spool.New(os.Getenv(spoolFileSizePath)).Put(record); err != nil {
+		reportFileSizeHelper("put-failed:", err)
 	}
-	reportDiskFullHelper("put-succeeded", nil)
+	reportFileSizeHelper("put-succeeded", nil)
 }
 
-// reportDiskFullHelper writes one status line the parent test matches on, then
+// reportFileSizeHelper writes one status line the parent test matches on, then
 // exits: success on the "put-succeeded" marker, failure otherwise.
-func reportDiskFullHelper(marker string, cause error) {
+func reportFileSizeHelper(marker string, cause error) {
 	if cause != nil {
 		_, _ = fmt.Fprintln(os.Stdout, marker, cause)
 		os.Exit(1)

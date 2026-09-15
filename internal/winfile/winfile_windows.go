@@ -7,6 +7,7 @@ package winfile
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -28,13 +29,20 @@ func OpenRegular(path string) (*os.File, error) {
 func OpenOutput(path string, appendMode bool) (*os.File, error) {
 	access := uint32(windows.GENERIC_WRITE)
 	if appendMode {
-		// LockFileEx requires read or write access. FILE_APPEND_DATA keeps each
-		// write pinned to EOF; GENERIC_READ permits the interprocess lock.
-		access = windows.GENERIC_READ | windows.FILE_APPEND_DATA | windows.SYNCHRONIZE
+		// FILE_WRITE_DATA permits rollback with os.File.Truncate. That right
+		// disables FILE_APPEND_DATA's implicit EOF positioning, so this open and
+		// the locked record writer explicitly seek to EOF.
+		access = windows.GENERIC_READ | windows.FILE_APPEND_DATA | windows.FILE_WRITE_DATA | windows.SYNCHRONIZE
 	}
 	f, err := open(path, access, windows.OPEN_ALWAYS)
 	if err != nil {
 		return nil, err
+	}
+	if appendMode {
+		if _, err := f.Seek(0, io.SeekEnd); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
 	}
 	if !appendMode {
 		// Verify the opened handle before truncating. CREATE_ALWAYS could mutate
@@ -43,7 +51,7 @@ func OpenOutput(path string, appendMode bool) (*os.File, error) {
 			_ = f.Close()
 			return nil, err
 		}
-		if _, err := f.Seek(0, 0); err != nil {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			_ = f.Close()
 			return nil, err
 		}
