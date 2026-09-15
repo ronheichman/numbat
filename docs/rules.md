@@ -140,7 +140,7 @@ Common CEL operations include:
 | Boolean logic | `a && b`, `a || b`, `!a` |
 | Membership | `value in ["a", "b"]` |
 | String tests | `contains`, `startsWith`, `endsWith`, `matches` |
-| String slicing | `substring(start)`, `substring(start, end)` |
+| String position/slicing | `indexOf`, `substring(start)`, `substring(start, end)` |
 | List predicates | `exists`, `all`, `exists_one` |
 | List range | `items.slice(start, end)` |
 | Integer indexes | `lists.range(n).exists(i, ...)` |
@@ -153,8 +153,8 @@ escaping; for example, a literal dot is written as `"\\.env"`.
 `canonical_path(p)` normalizes path separators, `.`, `..`, and duplicate `/`
 segments. It treats each leading `/proc/<self|thread-self|PID>/root` or
 `/proc/<self|PID>/task/<TID>/root` as `/`. Relative paths remain relative. It
-keeps absolute Windows paths rooted to their drive. It does not access the
-filesystem or resolve other symbolic links.
+keeps Windows drive and UNC roots intact. It does not access the filesystem or
+resolve other symbolic links.
 
 Action types are alternatives, not layers. A recognized shell action is a
 `command.exec`, not both a `tool.call` and a `command.exec`; file and network
@@ -398,16 +398,15 @@ module-qualified forms. Ambient preference and command-resolution state are not
 inferred.
 
 For a shell-derived match, blocking has a narrower eligibility boundary than
-detection. POSIX simple commands, pipelines, static groups and subshells may be
-combined with `;`, `&&`, or `||`; statically unreachable short-circuit branches
-remain detection-only. Supported transparent launchers are allowed only when
-their final child command is also in that subset. Other control flow,
-same-script functions, inline child interpreters, `eval` or
+detection: the complete shell program must be one static simple command or one
+static POSIX pipeline. Supported transparent launchers are allowed only when
+their final child command is also in that subset. Multiple statements, control
+flow, same-script functions, inline child interpreters, `eval` or
 `Invoke-Expression`, substitutions, runtime-dependent values, PowerShell or CMD
-compound commands, previews, parser diagnostics, and truncated projections
-remain detection-only. A rule may still use `shell_commands` alongside
-structured fields such as `event.file_path`; a matching commandless structured
-event does not require a shell projection. See [Enforcement](enforcement.md).
+pipelines, previews, parser diagnostics, and truncated projections remain
+detection-only. A rule may still use `shell_commands` alongside structured
+fields such as `event.file_path`; a matching commandless structured event does
+not require a shell projection. See [Enforcement](enforcement.md).
 
 ## Enforcement rules
 

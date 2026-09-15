@@ -79,20 +79,17 @@ depends on executable command semantics.
 Detection parses a broad set of shell structures. When a match is derived from
 `shell_commands`, blocking uses a smaller static subset:
 
-- POSIX shells: static simple commands, pipelines, groups, and subshells joined
-  by `;`, `&&`, or `||`
+- POSIX shells: one simple command or one pipeline of simple commands
 - PowerShell and `cmd.exe`: one simple command
 - supported transparent launchers, only when the final child command meets the
   same rules
 
 Every projected command must have static arguments, assignments, and redirect
-targets. A POSIX `&&` or `||` list is eligible when either branch may execute;
-if a literal `true`, `false`, or `:` makes a branch statically unreachable, the
-whole shell program stays detection-only. Conditionals, loops, shell background
-syntax, substitutions, same-script functions, inline child interpreters,
-`eval`, `Invoke-Expression`, PowerShell or CMD compound commands, previews,
-parser diagnostics, and truncated projections also stay detection-only. This
-event-wide gate avoids denying an action based on a command that cannot execute.
+targets. Multiple statements, conditionals, loops, shell background syntax,
+substitutions, same-script functions, inline child interpreters, `eval`,
+`Invoke-Expression`, PowerShell or CMD pipelines, previews, parser diagnostics,
+and truncated projections stay detection-only. This event-wide gate avoids
+denying an action based on a command that may not execute.
 
 numbat recognizes explicit `-WhatIf` and a statically visible
 `$WhatIfPreference = $true` for known cmdlets. It does not infer ambient

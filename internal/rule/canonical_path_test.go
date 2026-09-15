@@ -32,7 +32,9 @@ func TestCanonicalPathCollapsesTraversalForFileEvents(t *testing.T) {
 		{"proc_root_parent_traversal", "/proc/self/root/../etc/numbat/rules/protect_numbat.yaml", true},
 		{"proc_root_dot_prefix", "/proc/./self/root/etc/numbat/rules/protect_numbat.yaml", true},
 		{"duplicate_slash", "/etc/numbat//rules/protect_numbat.yaml", true},
+		{"three_leading_slashes", "///etc/numbat/rules/protect_numbat.yaml", true},
 		{"windows_separators", `\etc\numbat\rules\protect_numbat.yaml`, true},
+		{"UNC_path_does_not_become_local", `\\etc\numbat\rules\protect_numbat.yaml`, false},
 		{"zero_is_not_a_pid", "/proc/0/root/etc/numbat/rules/protect_numbat.yaml", false},
 		{"zero_padded_pid", "/proc/04321/root/etc/numbat/rules/protect_numbat.yaml", false},
 		{"task_zero_tid", "/proc/4321/task/0/root/etc/numbat/rules/protect_numbat.yaml", false},
@@ -86,17 +88,43 @@ func TestCanonicalPathPreservesWindowsDriveRoot(t *testing.T) {
 		Severity: model.SeverityHigh,
 		Expr:     `canonical_path(event.file_path) == "C:/ProgramData/ssh/administrators_authorized_keys"`,
 	})
-	ev := model.Event{
-		EventID:   "e",
-		EventType: model.EventFileWrite,
-		FilePath:  `C:\..\ProgramData\ssh\administrators_authorized_keys`,
+	for _, filePath := range []string{
+		`C:\..\ProgramData\ssh\administrators_authorized_keys`,
+		`\\?\C:\ProgramData\ssh\administrators_authorized_keys`,
+	} {
+		ev := model.Event{
+			EventID:   "e",
+			EventType: model.EventFileWrite,
+			FilePath:  filePath,
+		}
+		matches, err := eng.Eval(ev)
+		if err != nil {
+			t.Fatalf("Eval(%q): %v", filePath, err)
+		}
+		if len(matches) != 1 {
+			t.Fatalf("Eval(%q) matches = %d, want 1", filePath, len(matches))
+		}
 	}
-	matches, err := eng.Eval(ev)
-	if err != nil {
-		t.Fatalf("Eval: %v", err)
-	}
-	if len(matches) != 1 {
-		t.Fatalf("matches = %d, want 1", len(matches))
+}
+
+func TestCanonicalPathPreservesUNCRoot(t *testing.T) {
+	eng := mustEngine(t, Rule{
+		ID:       "t.unc_root",
+		Severity: model.SeverityLow,
+		Expr:     `canonical_path(event.file_path) == "//server/share/keys/authorized_keys"`,
+	})
+	for _, filePath := range []string{
+		`\\server\share\keys\old\..\authorized_keys`,
+		`\\?\UNC\server\share\keys\authorized_keys`,
+		`//server/share/../../keys/authorized_keys`,
+	} {
+		matches, err := eng.Eval(model.Event{EventType: model.EventFileWrite, FilePath: filePath})
+		if err != nil {
+			t.Fatalf("Eval(%q): %v", filePath, err)
+		}
+		if len(matches) != 1 {
+			t.Fatalf("Eval(%q) matches = %d, want 1", filePath, len(matches))
+		}
 	}
 }
 

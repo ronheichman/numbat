@@ -3,9 +3,7 @@ package rule
 import (
 	"errors"
 	"fmt"
-	"path"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -52,37 +50,6 @@ type compiledExpression struct {
 }
 
 const contentRuleCostLimit uint64 = 10_000_000
-
-var procRootPath = regexp.MustCompile(`^/proc/(?:(?:self|[1-9][0-9]*)/task/[1-9][0-9]*|self|thread-self|[1-9][0-9]*)/root(?:/+|$)`)
-
-func canonicalPath(value string) string {
-	value = model.NormalizeEventPath(value)
-	if value == "" {
-		return ""
-	}
-	volume := ""
-	if len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && value[2] == '/' {
-		volume = value[:2]
-		value = value[2:]
-	}
-	for {
-		if volume == "" {
-			prefix := procRootPath.FindStringIndex(value)
-			if prefix != nil {
-				if prefix[1] == len(value) {
-					return "/"
-				}
-				value = value[prefix[1]-1:]
-				continue
-			}
-		}
-		clean := path.Clean(value)
-		if clean == value {
-			return volume + clean
-		}
-		value = clean
-	}
-}
 
 // SequenceRule is a compiled sequence rule ready for per-step evaluation. It
 // distills the validated spec (window, cap) next to the compiled step
@@ -156,9 +123,7 @@ func newEnv() (*cel.Env, error) {
 		cel.Function("canonical_path",
 			cel.Overload("canonical_path_string",
 				[]*cel.Type{cel.StringType}, cel.StringType,
-				cel.UnaryBinding(func(arg ref.Val) ref.Val {
-					return types.String(canonicalPath(string(arg.(types.String))))
-				}),
+				cel.UnaryBinding(canonicalPathBinding),
 			),
 		),
 	)
