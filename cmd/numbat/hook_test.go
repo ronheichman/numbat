@@ -921,6 +921,51 @@ func TestInstallRuntimeArgsKeepsRuntimeOutputPaths(t *testing.T) {
 	}
 }
 
+func TestInstallRuntimeArgsRejectsRelativeExpandedOutputPaths(t *testing.T) {
+	t.Setenv("REL", ".numbat")
+	for _, tt := range []struct {
+		name string
+		cfg  installRuntimeConfig
+		flag string
+	}{
+		{name: "file", cfg: installRuntimeConfig{file: "$REL/live.ndjson"}, flag: "--output-file"},
+		{name: "spool", cfg: installRuntimeConfig{modes: []string{"spool"}, spool: "$REL/state.db"}, flag: "--spool-file"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := installRuntimeArgs(tt.cfg, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), tt.flag+" must resolve to an absolute path") {
+				t.Fatalf("installRuntimeArgs error = %v, want absolute-path error for %s", err, tt.flag)
+			}
+		})
+	}
+}
+
+func TestInstallRuntimeArgsFreezesAbsoluteExpandedOutputPaths(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("NUMBAT_LOG_ROOT", root)
+	for _, tt := range []struct {
+		name string
+		cfg  installRuntimeConfig
+		want string
+	}{
+		{name: "file", cfg: installRuntimeConfig{file: "$NUMBAT_LOG_ROOT/live.ndjson"}, want: filepath.Join(root, "live.ndjson")},
+		{name: "spool", cfg: installRuntimeConfig{modes: []string{"spool"}, spool: "$NUMBAT_LOG_ROOT/live.spool"}, want: filepath.Join(root, "live.spool")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			args, err := installRuntimeArgs(tt.cfg, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(args, "$NUMBAT_LOG_ROOT/live.ndjson") || slices.Contains(args, "$NUMBAT_LOG_ROOT/live.spool") {
+				t.Fatalf("runtime args retain mutable environment path: %q", args)
+			}
+			if !slices.Contains(args, tt.want) {
+				t.Fatalf("runtime args = %q, want destination %q", args, tt.want)
+			}
+		})
+	}
+}
+
 func TestExpandHookPathAcceptsWindowsTildeSeparator(t *testing.T) {
 	home := t.TempDir()
 	setTestHome(t, home)

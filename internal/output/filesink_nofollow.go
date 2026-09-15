@@ -23,7 +23,42 @@ func openNoFollow(path string, perm os.FileMode, appendMode bool) (*os.File, err
 	} else {
 		flags |= os.O_WRONLY | os.O_TRUNC
 	}
-	return os.OpenFile(path, flags, perm)
+	f, err := os.OpenFile(path, flags, perm)
+	if err == nil || !appendMode || !errors.Is(err, os.ErrPermission) {
+		return f, err
+	}
+
+	// A pre-existing owner-write-only file can be tightened safely, but it
+	// cannot be opened read-write until after that repair. Keep the write-only
+	// descriptor open while reopening and verify that both refer to the same
+	// file, so a path replacement cannot redirect the append.
+	repair, repairErr := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW, perm)
+	if repairErr != nil {
+		return nil, repairErr
+	}
+	defer func() { _ = repair.Close() }()
+	before, repairErr := repair.Stat()
+	if repairErr != nil {
+		return nil, repairErr
+	}
+	if err := repair.Chmod(perm); err != nil {
+		return nil, err
+	}
+
+	f, repairErr = os.OpenFile(path, os.O_RDWR|os.O_APPEND|syscall.O_NOFOLLOW, perm)
+	if repairErr != nil {
+		return nil, repairErr
+	}
+	after, repairErr := f.Stat()
+	if repairErr != nil {
+		f.Close()
+		return nil, repairErr
+	}
+	if !os.SameFile(before, after) {
+		f.Close()
+		return nil, errors.New("file changed while tightening permissions")
+	}
+	return f, nil
 }
 
 // isNoFollowErr reports whether err is the ELOOP that O_NOFOLLOW returns when

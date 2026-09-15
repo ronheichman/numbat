@@ -420,11 +420,10 @@ func installRuntimeArgs(cfg installRuntimeConfig, home string) ([]string, error)
 			} else {
 				file = hook.DefaultRecordsPath(home)
 			}
-		} else if !filepath.IsAbs(file) && !runtimeExpandedPath(file) {
-			file, err = filepath.Abs(file)
-			if err != nil {
-				return nil, fmt.Errorf("resolve --output-file %q: %w", cfg.file, err)
-			}
+		}
+		file, err = resolveInstalledSinkPath("--output-file", file)
+		if err != nil {
+			return nil, err
 		}
 		args = append(args, "--output-file", file)
 	}
@@ -444,17 +443,17 @@ func installRuntimeArgs(cfg installRuntimeConfig, home string) ([]string, error)
 			} else {
 				path = hook.DefaultRecordsSpoolPath(home)
 			}
-		} else if !filepath.IsAbs(path) && !runtimeExpandedPath(path) {
-			path, err = filepath.Abs(path)
-			if err != nil {
-				return nil, fmt.Errorf("resolve --spool-file %q: %w", cfg.spool, err)
-			}
 		}
-		// Paths with unavailable environment variables remain deferred to the runtime.
-		if expandedPath, expandErr := expandHookPath(path); expandErr == nil {
-			if _, err := hookStatePath("", expandedPath); err != nil {
-				return nil, err
-			}
+		path, err = resolveInstalledSinkPath("--spool-file", path)
+		if err != nil {
+			return nil, err
+		}
+		expandedPath, expandErr := expandHookPath(path)
+		if expandErr != nil {
+			return nil, fmt.Errorf("resolve --spool-file %q: %w", path, expandErr)
+		}
+		if _, err := hookStatePath("", expandedPath); err != nil {
+			return nil, err
 		}
 		args = append(args, "--spool-file", path)
 	}
@@ -551,6 +550,40 @@ func validateInstallEnforcementPolicy(ruleDirs []string, noBuiltin bool) error {
 
 func runtimeExpandedPath(path string) bool {
 	return strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) || strings.Contains(path, "$")
+}
+
+func resolveInstalledSinkPath(name, path string) (string, error) {
+	if !runtimeExpandedPath(path) {
+		if filepath.IsAbs(path) {
+			return filepath.Clean(path), nil
+		}
+		resolved, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve %s %q: %w", name, path, err)
+		}
+		return resolved, nil
+	}
+	if homeAnchoredPath(path) {
+		return path, nil
+	}
+
+	resolved, err := expandHookPath(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s %q: %w", name, path, err)
+	}
+	if !filepath.IsAbs(resolved) {
+		return "", fmt.Errorf("%s must resolve to an absolute path; got %q", name, resolved)
+	}
+	return resolved, nil
+}
+
+func homeAnchoredPath(path string) bool {
+	for _, prefix := range []string{"$HOME/", `$HOME\`, "${HOME}/", `${HOME}\`, "~/", `~\`} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func httpOnlyInstallFlagNames() []string {
