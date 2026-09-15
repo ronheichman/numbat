@@ -499,8 +499,6 @@ func findRotatedShipInput(activePath string, checkpoint shipCheckpoint) (*os.Fil
 	if err != nil {
 		return nil, "", err
 	}
-	var fallback *os.File
-	var fallbackID string
 	var candidateErr error
 	for _, entry := range entries {
 		entryType := entry.Type()
@@ -537,22 +535,11 @@ func findRotatedShipInput(activePath string, checkpoint shipCheckpoint) (*os.Fil
 			candidateErr = errors.Join(candidateErr, fmt.Errorf("inspect rotated candidate %s: %w", candidatePath, err))
 			continue
 		}
-		identityMatches := checkpoint.FileID != "" && candidateID != "" && checkpoint.FileID == candidateID
+		identityMatches := shipFileIdentityMatches(checkpoint.FileID, candidateID)
 		if contentMatches && identityMatches {
-			if fallback != nil {
-				_ = fallback.Close()
-			}
 			return candidate, candidateID, nil
 		}
-		if contentMatches && checkpoint.GuardBytes > 0 && fallback == nil {
-			fallback = candidate
-			fallbackID = candidateID
-			continue
-		}
 		_ = candidate.Close()
-	}
-	if fallback != nil {
-		return fallback, fallbackID, nil
 	}
 	return nil, "", candidateErr
 }
