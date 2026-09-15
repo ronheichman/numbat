@@ -83,21 +83,19 @@ pipeline also excludes its nested substitutions. Malformed top-level input and
 truncated command lists stay detection-only.
 
 Sequencing, groups, subshells, background commands, negation, and substitutions
-do not disable an otherwise eligible candidate. Both sides of `&&` and `||`
-count as requested intent, even when one side cannot execute. Function calls
-remain detection-only. Eligible commands in an invoked function body are
-separate candidates.
+do not disable an otherwise eligible candidate. numbat does not predict POSIX
+control flow: static commands in conditional branches and loop bodies count as
+requested intent, as do both sides of `&&` and `||`. Function calls and commands
+recovered from same-script function bodies remain detection-only because shell
+state can replace or remove the definition before the call.
 
-Detection evaluates the complete command list. For an `enforce: true` rule that
-uses `shell_commands`, enforcement evaluates the same expression against each
-eligible candidate. An input that passes the existing whole-input safety checks
-uses its complete list for both decisions. Other event fields retain their full
-values.
-
-A candidate match produces a finding and can deny the complete tool
-input, even when full-list detection fails. Detection errors remain diagnostics.
-A candidate error suppresses enforcement only when no candidate returns true.
-Rules without `shell_commands` keep their existing behavior.
+Detection always evaluates the complete command list. For an `enforce: true`
+rule that uses `shell_commands`, that evaluation must first match cleanly. When
+the complete input is not enforcement-safe, numbat evaluates the same expression
+against each eligible candidate to confirm that at least one candidate also
+matches. Candidate evaluation can suppress a deny; it cannot create a finding
+or change the rule's detection result. Other event fields retain their full
+values. Rules without `shell_commands` keep their existing behavior.
 
 Scripts parsed from `eval` or child interpreter input, including heredocs, remain
 detection-only. Compound PowerShell and `cmd.exe` input also remain

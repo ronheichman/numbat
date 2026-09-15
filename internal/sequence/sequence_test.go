@@ -135,31 +135,44 @@ func TestSequenceStepUsesShellCommands(t *testing.T) {
 	}
 }
 
-func TestSequenceFinalStepCanMatchOneCompoundCandidate(t *testing.T) {
-	enforce := true
-	r := secretThenEgress(func(spec *rule.SequenceSpec) {
-		spec.Steps[0].Expr = `shell_commands.exists(command, command.name == "prep")`
-		spec.Steps[1].Expr = `shell_commands.filter(command, command.name == "cat").size() == 1 &&
-			shell_commands[0].argv[1] == ".env"`
-	})
-	r.Enforce = &enforce
-	tr := NewTracker(compile(t, r), DefaultConfig())
+func TestSequenceFinalStepCompoundCandidate(t *testing.T) {
+	for _, test := range []struct {
+		name, expr string
+		wantMatch  bool
+	}{
+		{name: "confirms complete-list match", expr: `shell_commands.exists(command, command.name == "cat")`, wantMatch: true},
+		{name: "cannot create detection", expr: `shell_commands.size() == 1 && shell_commands[0].name == "cat"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			enforce := true
+			r := secretThenEgress(func(spec *rule.SequenceSpec) {
+				spec.Steps[0].Expr = `shell_commands.exists(command, command.name == "prep")`
+				spec.Steps[1].Expr = test.expr
+			})
+			r.Enforce = &enforce
+			tr := NewTracker(compile(t, r), DefaultConfig())
 
-	prep := ev("e1", "2026-06-01T10:00:00Z", model.EventCommandExec, func(e *model.Event) {
-		e.Command = "prep"
-	})
-	if observation, err := tr.Observe(prep); err != nil || len(observation.Findings) != 0 {
-		t.Fatalf("prep observation = %+v, %v", observation, err)
-	}
-	compound := ev("e2", "2026-06-01T10:01:00Z", model.EventCommandExec, func(e *model.Event) {
-		e.Command = "true; cat .env"
-	})
-	observation, err := tr.Observe(compound)
-	if err == nil {
-		t.Fatal("compound observation returned no aggregate evaluation error")
-	}
-	if len(observation.Findings) != 1 || len(observation.EnforcementRules) != 1 {
-		t.Fatalf("compound observation = %+v, want one finding and one enforcement rule", observation)
+			prep := ev("e1", "2026-06-01T10:00:00Z", model.EventCommandExec, func(e *model.Event) {
+				e.Command = "prep"
+			})
+			if observation, err := tr.Observe(prep); err != nil || len(observation.Findings) != 0 {
+				t.Fatalf("prep observation = %+v, %v", observation, err)
+			}
+			compound := ev("e2", "2026-06-01T10:01:00Z", model.EventCommandExec, func(e *model.Event) {
+				e.Command = "true; cat .env"
+			})
+			observation, err := tr.Observe(compound)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if test.wantMatch {
+				want = 1
+			}
+			if len(observation.Findings) != want || len(observation.EnforcementRules) != want {
+				t.Fatalf("compound observation = %+v, want match %t", observation, test.wantMatch)
+			}
+		})
 	}
 }
 

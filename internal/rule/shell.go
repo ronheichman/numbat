@@ -441,9 +441,13 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 			if command.FunctionCall {
 				if name, ok := commandName(call.Args); ok {
 					if body := functions[name]; body != nil && depth < maxCommandExpansionDepth && !activeFunctions[name] {
+						start := len(a.commands)
 						activeFunctions[name] = true
 						a.walk(source, body, depth+1, functions, activeFunctions, commandWrappers, ctx.statementID)
 						delete(activeFunctions, name)
+						// Shell state may replace or unset the definition before this
+						// call. Keep the recovered body available to detection only.
+						a.markCommandsUnsafe(start)
 					}
 				}
 			}

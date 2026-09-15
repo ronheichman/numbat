@@ -389,11 +389,12 @@ visible `$WhatIfPreference = $true` for known cmdlet names and exact
 module-qualified forms. Ambient preference and command-resolution state are not
 inferred.
 
-For shell-derived blocking, `numbat` evaluates the rule against eligible
-parser-derived candidates. Both sides of `&&` and `||` are checked. A rule can
-still use `shell_commands` with fields such as `event.file_path`. A matching
-commandless structured event does not need a shell projection. See
-[Enforcement](enforcement.md) for candidate eligibility.
+For shell-derived blocking, `numbat` first evaluates the rule against the
+complete command list. An already-matching rule must then match an eligible
+parser-derived candidate. This safety check cannot create a detection. Both
+sides of `&&` and `||` are checked. A rule can still use `shell_commands` with
+fields such as `event.file_path`; a matching commandless structured event does
+not need a shell projection. See [Enforcement](enforcement.md).
 
 ## Enforcement rules
 

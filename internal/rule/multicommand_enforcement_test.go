@@ -32,6 +32,8 @@ func TestMultiCommandEnforcementRegression(t *testing.T) {
 		{name: "semicolon", command: `echo hi; cat .env`},
 		{name: "and", command: `false && cat .env`},
 		{name: "or", command: `true || cat .env`},
+		{name: "conditional branch", command: `if false; then cat .env; fi`},
+		{name: "loop body", command: `while false; do cat .env; done`},
 		{name: "subshell", command: `(cat .env)`},
 		{name: "group", command: `{ cat .env; }`},
 		{name: "background", command: `cat .env &`},
@@ -91,18 +93,16 @@ func TestMultiCommandEnforcementUsesPOSIXParserForExecCommand(t *testing.T) {
 
 func TestMultiCommandEnforcementCandidateEvaluation(t *testing.T) {
 	tests := []struct {
-		name, expr, command  string
-		wantErr, wantEnforce bool
+		name, expr, command             string
+		wantErr, wantMatch, wantEnforce bool
 	}{
-		{name: "complete candidate", expr: `shell_commands.size() == 1 && shell_commands[0].name == "cat" && shell_commands[0].argv.exists(arg, arg == ".env")`, command: `cat .env; true`, wantEnforce: true},
-		{name: "complete pipeline candidate", expr: `shell_commands.size() == 2 && shell_commands.exists(command, command.name == "cat") && shell_commands.exists(command, command.name == "grep")`, command: `true; cat .env | grep x`, wantEnforce: true},
-		{name: "list all", expr: `event.event_type == "command.exec" && shell_commands.all(command, command.name == "cat")`, command: `cat one; true`, wantEnforce: true},
-		{name: "error before match", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `noop; echo x`, wantEnforce: true},
-		{name: "error after match", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `echo x; noop`, wantEnforce: true},
-		{name: "only errors", expr: `shell_commands.size() == 1 && shell_commands[0].argv[1] == "x"`, command: `noop; echo y`, wantErr: true},
-		{name: "raw predicate", expr: `event.command.contains("RAW_BLOCK") || shell_commands.exists(command, command.name == "never-match")`, command: `echo RAW_BLOCK "$x"; true`, wantEnforce: true},
-		{name: "nested raw predicate", expr: `(event.command.contains("RAW_BLOCK") || shell_commands.exists(command, command.name == "never-match")) == true`, command: `echo RAW_BLOCK "$x"; true`, wantEnforce: true},
-		{name: "aggregate error", expr: `shell_commands.filter(command, command.name == "cat").size() == 1 && shell_commands[0].argv[1] == ".env"`, command: `true; cat .env`, wantErr: true, wantEnforce: true},
+		{name: "candidate confirms complete-list match", expr: `shell_commands.exists(command, command.name == "cat")`, command: `cat .env; true`, wantMatch: true, wantEnforce: true},
+		{name: "candidate cannot create size match", expr: `shell_commands.size() == 1 && shell_commands[0].name == "cat"`, command: `cat .env; true`},
+		{name: "candidate cannot create pipeline-size match", expr: `shell_commands.size() == 2 && shell_commands.exists(command, command.name == "cat") && shell_commands.exists(command, command.name == "grep")`, command: `true; cat .env | grep x`},
+		{name: "candidate cannot create all match", expr: `event.event_type == "command.exec" && shell_commands.all(command, command.name == "cat")`, command: `cat one; true`},
+		{name: "full-list error prevents candidate evaluation", expr: `shell_commands.filter(command, command.name == "cat").size() == 1 && shell_commands[0].argv[1] == ".env"`, command: `true; cat .env`, wantErr: true},
+		{name: "raw predicate", expr: `event.command.contains("RAW_BLOCK") || shell_commands.exists(command, command.name == "never-match")`, command: `echo RAW_BLOCK "$x"; true`, wantMatch: true, wantEnforce: true},
+		{name: "nested raw predicate", expr: `(event.command.contains("RAW_BLOCK") || shell_commands.exists(command, command.name == "never-match")) == true`, command: `echo RAW_BLOCK "$x"; true`, wantMatch: true, wantEnforce: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -111,7 +111,11 @@ func TestMultiCommandEnforcementCandidateEvaluation(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("Eval error = %v, want error %t", err, test.wantErr)
 			}
-			enforced := len(matches) == 1 && matches[0].EnforcementMatch
+			matched := len(matches) == 1
+			if matched != test.wantMatch {
+				t.Fatalf("Eval returned %+v, want match %t", matches, test.wantMatch)
+			}
+			enforced := matched && matches[0].EnforcementMatch
 			if enforced != test.wantEnforce {
 				t.Fatalf("Eval returned %+v, want enforcement %t", matches, test.wantEnforce)
 			}
@@ -196,6 +200,24 @@ func TestMultiCommandEnforcementDoesNotTreatFunctionCallsAsExecutables(t *testin
 		}
 		if len(matches) != 1 || matches[0].EnforcementMatch {
 			t.Fatalf("Eval(%q) returned %+v, want detection-only function match", command, matches)
+		}
+	}
+}
+
+func TestMultiCommandEnforcementKeepsFunctionBodiesDetectionOnly(t *testing.T) {
+	eng := compoundRuleEngine(t, `shell_commands.exists(command,
+		command.name == "cat" && command.argv.exists(arg, arg == ".env"))`)
+	for _, command := range []string{
+		`f(){ cat .env; }; f`,
+		`f(){ cat .env; }; unset -f f; f`,
+		`if true; then f(){ :; }; else f(){ cat .env; }; fi; f`,
+	} {
+		matches, err := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: command})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 1 || matches[0].EnforcementMatch {
+			t.Fatalf("Eval(%q) returned %+v, want detection-only function-body match", command, matches)
 		}
 	}
 }

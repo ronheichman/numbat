@@ -486,6 +486,9 @@ func TestEnforceCompoundCommandsPreservesInterpreterBoundary(t *testing.T) {
 		{"missing bash option value", "bash --rcfile <<'EOF'\ncat .env\nEOF", false},
 		{"invalid option after startup file", "bash --rcfile /dev/fd/3 -i -Z 3<<'EOF'\ncat .env\nEOF", false},
 		{"consumed inherited input", "{ cat >/dev/null; sh; } <<'EOF'\ncat .env\nEOF", false},
+		{"function body", `f(){ cat .env; }; f`, false},
+		{"unset function body", `f(){ cat .env; }; unset -f f; f`, false},
+		{"conditional function body", `if true; then f(){ :; }; else f(){ cat .env; }; fi; f`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			command, err := json.Marshal(test.command)

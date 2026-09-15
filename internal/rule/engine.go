@@ -81,13 +81,14 @@ func (s *SequenceRule) WithinEvents() int { return s.withinEvents }
 // MaxMatches returns the per-(rule, session) finding cap, always >= 1.
 func (s *SequenceRule) MaxMatches() int { return s.maxMatches }
 
-// StepEvaluation keeps a detection or candidate match separate from permission to enforce it.
+// StepEvaluation keeps a detection match separate from permission to enforce it.
 type StepEvaluation struct {
 	Match            bool
 	EnforcementMatch bool
 }
 
-// EvalStep can return a clean candidate match alongside a full-list diagnostic.
+// EvalStep evaluates detection against the complete event projection. Candidate
+// evaluation can only narrow enforcement eligibility for a clean match.
 func (s *SequenceRule) EvalStep(i int, activations SequenceActivations) (StepEvaluation, error) {
 	if i < 0 || i >= len(s.steps) {
 		return StepEvaluation{}, fmt.Errorf("rule %q: step index %d out of range", s.rule.ID, i)
@@ -106,7 +107,7 @@ func (s *SequenceRule) EvalStep(i int, activations SequenceActivations) (StepEva
 		errs = append(errs, fmt.Errorf("rule %q step %d: candidate evaluation failed", s.rule.ID, i+1))
 	}
 	return StepEvaluation{
-		Match:            evaluation.detectionMatch || evaluation.enforcementMatch,
+		Match:            evaluation.detectionMatch,
 		EnforcementMatch: evaluation.enforcementMatch,
 	}, errors.Join(errs...)
 }
@@ -731,7 +732,7 @@ func (e *Engine) Eval(ev model.Event) ([]Match, error) {
 		if evaluation.candidateErr != nil {
 			errs = append(errs, fmt.Errorf("rule %q: candidate evaluation failed", c.rule.ID))
 		}
-		if evaluation.detectionMatch || evaluation.enforcementMatch {
+		if evaluation.detectionMatch {
 			matches = append(matches, Match{
 				Rule:             cloneRule(c.rule),
 				Event:            ev,
@@ -757,7 +758,7 @@ func evaluateExpression(expr compiledExpression, activations sequenceActivations
 		enforcementMatch: detectionMatch && enforceEligible,
 		detectionErr:     detectionErr,
 	}
-	if !enforceEligible || !expr.usesShellCommands || activations.shellEnforcementSafe {
+	if !detectionMatch || !enforceEligible || !expr.usesShellCommands || activations.shellEnforcementSafe {
 		return evaluation
 	}
 	candidate, _, candidateErr := expr.candidateProgram.Eval(activations.detection)

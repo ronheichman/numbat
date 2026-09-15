@@ -444,8 +444,8 @@ func TestEngineDoesNotEnforceRuntimeDependentCommands(t *testing.T) {
 		ToolName:  "bash",
 		Command:   `run(){ wipefs -a /dev/sda; }; run`,
 	})
-	if err != nil || len(staticBody) != 1 || !staticBody[0].EnforcementMatch {
-		t.Fatalf("static function body = (%+v, %v), want enforceable request match", staticBody, err)
+	if err != nil || len(staticBody) != 1 || staticBody[0].EnforcementMatch {
+		t.Fatalf("static function body = (%+v, %v), want detection-only match", staticBody, err)
 	}
 }
 
