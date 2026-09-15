@@ -529,14 +529,13 @@ func findRotatedShipInput(activePath string, checkpoint shipCheckpoint) (*os.Fil
 			_ = candidate.Close()
 			continue
 		}
-		contentMatches, err := shipCheckpointContentMatches(candidate, checkpoint)
+		matches, err := shipCheckpointMatches(candidate, candidateID, checkpoint)
 		if err != nil {
 			_ = candidate.Close()
 			candidateErr = errors.Join(candidateErr, fmt.Errorf("inspect rotated candidate %s: %w", candidatePath, err))
 			continue
 		}
-		identityMatches := shipFileIdentityMatches(checkpoint.FileID, candidateID)
-		if contentMatches && identityMatches {
+		if matches && checkpoint.FileID != "" && candidateID != "" {
 			return candidate, candidateID, nil
 		}
 		_ = candidate.Close()
