@@ -661,7 +661,7 @@ func shipBatchAdaptive(factory shipSinkFactory, blob []byte, offset int64, ackno
 	}
 	left, right, ok := splitShipBatch(blob)
 	if !ok {
-		return fmt.Errorf("deliver: HTTP 413 rejected the %d-byte NDJSON record at input offset %d; record remains unacknowledged: %w", len(blob), offset, err)
+		return fmt.Errorf("deliver: HTTP 413 rejected the %d-byte NDJSON record at input offset %d. Record remains unacknowledged: %w", len(blob), offset, err)
 	}
 	if err := shipBatchAdaptive(factory, left, offset, acknowledge); err != nil {
 		return err
