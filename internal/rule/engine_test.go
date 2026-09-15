@@ -194,6 +194,33 @@ func TestShellCommandsReferenceDetectionHonorsComprehensionScope(t *testing.T) {
 	}
 }
 
+func TestShellCandidateProgramsCompileOnlyForEnforcedRules(t *testing.T) {
+	const expr = `shell_commands.exists(command, command.name == "cat")`
+	monitor := mustEngine(t, Rule{
+		ID: "t.monitor", Severity: model.SeverityLow, Expr: expr,
+	})
+	if monitor.usesShellCandidates || monitor.rules[0].program.candidateProgram != nil {
+		t.Fatal("monitor-only rule compiled enforcement candidates")
+	}
+
+	enforced := mustEngine(t,
+		Rule{ID: "t.monitor", Severity: model.SeverityLow, Expr: expr},
+		Rule{ID: "t.enforced", Severity: model.SeverityLow, Enforce: boolPtr(true), Expr: expr},
+	)
+	if !enforced.usesShellCandidates || enforced.rules[1].program.candidateProgram == nil {
+		t.Fatal("enforced rule did not compile enforcement candidates")
+	}
+
+	disabled := false
+	disabledEnforcement := mustEngine(t,
+		Rule{ID: "t.disabled", Severity: model.SeverityLow, Enabled: &disabled, Enforce: boolPtr(true), Expr: expr},
+		Rule{ID: "t.monitor", Severity: model.SeverityLow, Expr: expr},
+	)
+	if disabledEnforcement.usesShellCandidates {
+		t.Fatal("disabled enforcement rule enabled candidate analysis")
+	}
+}
+
 func TestShadowedShellCommandsDoesNotAnalyzeCommand(t *testing.T) {
 	eng := mustEngine(t, Rule{
 		ID:       "shadow",
@@ -840,6 +867,19 @@ func TestNewEngineRejectsEventAliases(t *testing.T) {
 		Expr:     `[{"command": "safe", "local_field": "x"}].exists(event, event.command == "safe" && event.local_field == "x") && event.event_type == "command.exec"`,
 	}}}}); err != nil {
 		t.Fatalf("fields on shadowed local named event rejected: %v", err)
+	}
+}
+
+func TestNewEngineRejectsInternalCandidateVariable(t *testing.T) {
+	_, err := NewEngine([]Source{{Name: "test", Rules: []Rule{{
+		ID:       "t.internal_candidate",
+		Title:    "internal candidate",
+		Version:  "1",
+		Severity: model.SeverityLow,
+		Expr:     `__numbat_shell_command_candidates.size() > 0`,
+	}}}})
+	if err == nil || !strings.Contains(err.Error(), "reserved identifier") {
+		t.Fatalf("internal candidate variable error = %v, want reserved identifier", err)
 	}
 }
 

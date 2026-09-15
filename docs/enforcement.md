@@ -76,18 +76,20 @@ literal input and can include comments, quoted examples, or other text the
 shell would not execute. Use the parsed `shell_commands` view when a deny
 depends on executable command semantics.
 
-For POSIX input, a candidate is one parsed command or the direct members of one
-`|` or `|&` pipeline. Each candidate must meet the existing checks for static
-arguments, assignments, redirect targets, wrappers, and previews. An unsafe
-pipeline also excludes its nested substitutions. Malformed top-level input and
-truncated command lists stay detection-only.
+For POSIX input, a candidate contains the projections for one shell statement,
+or for all direct members of one `|` or `|&` pipeline. Each candidate must meet
+the existing checks for static arguments, assignments, redirect targets,
+wrappers, and previews. An unsafe pipeline also excludes its nested
+substitutions. Malformed top-level input and truncated command lists stay
+detection-only.
 
-Sequencing, groups, subshells, background commands, negation, and substitutions
-do not disable an otherwise eligible candidate. numbat does not predict POSIX
-control flow: static commands in conditional branches and loop bodies count as
-requested intent, as do both sides of `&&` and `||`. Function calls and commands
-recovered from same-script function bodies remain detection-only because shell
-state can replace or remove the definition before the call.
+Statement lists, groups, subshells, background commands, negation, and
+substitutions do not disable an otherwise eligible candidate. numbat does not
+predict POSIX control flow: static commands in conditional branches and loop
+bodies count as requested intent, as do both sides of `&&` and `||`. Function
+calls and commands recovered from same-script function bodies remain
+detection-only because shell state can replace or remove the definition before
+the call.
 
 Detection always evaluates the complete command list. For an `enforce: true`
 rule that uses `shell_commands`, that evaluation must first match cleanly. When

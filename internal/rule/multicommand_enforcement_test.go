@@ -42,10 +42,6 @@ func TestMultiCommandEnforcementRegression(t *testing.T) {
 		{name: "command substitution", command: `echo "$(cat .env)"`},
 		{name: "standalone command substitution", command: `$(cat .env)`, wantErr: true},
 		{name: "redirect substitution", command: `{ true; } > "$(cat .env)"`},
-		{name: "group dynamic redirect", command: `{ cat .env; } > "$target"`},
-		{name: "subshell dynamic redirect", command: `(cat .env) > "$target"`},
-		{name: "group dynamic descriptor", command: `{ cat .env; } {fd}>out`, wantErr: true},
-		{name: "subshell dynamic descriptor", command: `(cat .env) {fd}>out`, wantErr: true},
 		{name: "named descriptor redirect substitution", command: `true "$(cat .env)" {fd}>out`, wantErr: true},
 		{name: "commandless descriptor redirect substitution", command: `> "$(cat .env)" {fd}>out`, wantErr: true},
 		{name: "assignment descriptor redirect substitution", command: `X=1 >"$(cat .env)" {fd}>out`, wantErr: true},
@@ -142,6 +138,10 @@ func TestMultiCommandEnforcementPreservesPipelineSafety(t *testing.T) {
 		`f(){ cat .env; }; f | echo "$value"`,
 		`f(){ cat .env; }; f |& echo "$value"`,
 		`declare X=1 >"$(cat .env)" {fd}>out | true`,
+		`{ cat .env; } > "$target"`,
+		`(cat .env) > "$target"`,
+		`{ cat .env; } {fd}>out`,
+		`(cat .env) {fd}>out`,
 	} {
 		matches, _ := eng.Eval(model.Event{EventType: model.EventCommandExec, ToolName: "bash", Command: command})
 		if len(matches) != 1 || matches[0].EnforcementMatch {

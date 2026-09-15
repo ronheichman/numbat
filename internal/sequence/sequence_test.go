@@ -176,6 +176,33 @@ func TestSequenceFinalStepCompoundCandidate(t *testing.T) {
 	}
 }
 
+func TestSequenceEarlierStepCompoundCandidate(t *testing.T) {
+	enforce := true
+	r := secretThenEgress(func(spec *rule.SequenceSpec) {
+		spec.Steps[0].Expr = `shell_commands.exists(command, command.name == "prep")`
+		spec.Steps[1].Expr = `shell_commands.exists(command, command.name == "finish")`
+	})
+	r.Enforce = &enforce
+	tr := NewTracker(compile(t, r), DefaultConfig())
+
+	prep := ev("e1", "2026-06-01T10:00:00Z", model.EventCommandExec, func(e *model.Event) {
+		e.Command = "true; prep"
+	})
+	if observation, err := tr.Observe(prep); err != nil || len(observation.Findings) != 0 {
+		t.Fatalf("prep observation = %+v, %v", observation, err)
+	}
+	finish := ev("e2", "2026-06-01T10:01:00Z", model.EventCommandExec, func(e *model.Event) {
+		e.Command = "finish"
+	})
+	observation, err := tr.Observe(finish)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Findings) != 1 || len(observation.EnforcementRules) != 1 {
+		t.Fatalf("sequence observation = %+v, want enforceable match", observation)
+	}
+}
+
 func TestSequenceShellAnalysisErrorIsReported(t *testing.T) {
 	r := secretThenEgress(func(spec *rule.SequenceSpec) {
 		spec.Steps[0].Expr = `shell_commands.size() == 0`

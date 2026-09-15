@@ -41,7 +41,7 @@ type sequenceActivations struct {
 // prepareActivations adds the rule-only shell command projection when a
 // compiled expression references it. Detection sees every statically proven
 // command. The projection is never emitted.
-func prepareActivations(adapter types.Adapter, ev model.Event, needShellCommands bool) sequenceActivations {
+func prepareActivations(adapter types.Adapter, ev model.Event, needShellCommands, needShellCandidates bool) sequenceActivations {
 	detection := ev.CELActivation()
 	detection["event"] = adapter.NativeToValue(detection["event"])
 	if !needShellCommands {
@@ -51,9 +51,11 @@ func prepareActivations(adapter types.Adapter, ev model.Event, needShellCommands
 			shellEnforcementSafe: true,
 		}
 	}
-	analysis := analyzeEventShellCommandsDetailed(ev)
+	analysis := analyzeEventShellCommandsDetailed(ev, needShellCandidates)
 	detection[shellCommandsVariable] = shellCommandList(adapter, analysis.commands)
-	detection[shellCommandCandidatesVariable] = shellCommandCandidateList(adapter, analysis.enforcementCandidates)
+	if needShellCandidates {
+		detection[shellCommandCandidatesVariable] = shellCommandCandidateList(adapter, analysis.enforcementCandidates)
+	}
 	return sequenceActivations{
 		detection:            detection,
 		shellUsable:          analysis.usable,
@@ -114,13 +116,13 @@ func PrepareSequenceActivations(ev model.Event, rules []*SequenceRule) (Sequence
 	if len(rules) > 0 {
 		adapter = rules[0].adapter
 	}
+	needShellCommands := false
+	needShellCandidates := false
 	for _, r := range rules {
-		if r.usesShellCommands {
-			prepared := prepareActivations(adapter, ev, true)
-			return SequenceActivations{prepared: prepared}, prepared.err
-		}
+		needShellCommands = needShellCommands || r.usesShellCommands
+		needShellCandidates = needShellCandidates || r.usesShellCandidates
 	}
-	prepared := prepareActivations(adapter, ev, false)
+	prepared := prepareActivations(adapter, ev, needShellCommands, needShellCandidates)
 	return SequenceActivations{prepared: prepared}, prepared.err
 }
 
@@ -165,20 +167,24 @@ func analyzeShellCommands(source string) ([]ShellCommand, bool, error) {
 }
 
 func analyzeEventShellCommands(ev model.Event) ([]ShellCommand, bool, error) {
-	analysis := analyzeEventShellCommandsDetailed(ev)
+	analysis := analyzeEventShellCommandsDetailed(ev, false)
 	return analysis.commands, analysis.usable, analysis.err
 }
 
-func analyzeEventShellCommandsDetailed(ev model.Event) shellAnalysis {
-	return analyzeShellCommandsDetailed(ev.Command, commandDialectHint(ev))
+func analyzeEventShellCommandsDetailed(ev model.Event, needCandidates bool) shellAnalysis {
+	return analyzeShellCommandsDetailedWithCandidates(ev.Command, commandDialectHint(ev), needCandidates)
 }
 
 func analyzeShellCommandsAs(source string, dialect commandDialect) ([]ShellCommand, bool, error) {
-	analysis := analyzeShellCommandsDetailed(source, dialect)
+	analysis := analyzeShellCommandsDetailedWithCandidates(source, dialect, false)
 	return analysis.commands, analysis.usable, analysis.err
 }
 
 func analyzeShellCommandsDetailed(source string, dialect commandDialect) shellAnalysis {
+	return analyzeShellCommandsDetailedWithCandidates(source, dialect, true)
+}
+
+func analyzeShellCommandsDetailedWithCandidates(source string, dialect commandDialect, needCandidates bool) shellAnalysis {
 	if strings.TrimSpace(source) == "" {
 		return shellAnalysis{usable: true, enforcementSafe: true}
 	}
@@ -199,7 +205,7 @@ func analyzeShellCommandsDetailed(source string, dialect commandDialect) shellAn
 		}
 	}
 	var candidates [][]ShellCommand
-	if !a.halt {
+	if needCandidates && !a.halt {
 		candidates = posixEnforcementCandidates(a.commands, a.unsafePipelines, a.unsafeStatements, a.statementParents)
 	}
 	return shellAnalysis{
@@ -330,11 +336,17 @@ func (a *shellAnalyzer) walk(source string, root syntax.Node, depth int, functio
 					redirectCommand, add, err := projectPOSIXCommand(source, nil, nil, node.Redirs, wrappers, ctx)
 					if err != nil {
 						a.report(err)
-						if ctx.pipelineID != 0 {
-							a.markStatementsUnsafe(node, ctx.statementIDs)
+						if node.Cmd != nil {
+							a.markStatementsUnsafe(node.Cmd, ctx.statementIDs)
 						}
 						a.markPipelineUnsafe(ctx)
 						return true
+					}
+					if !commandSafeForEnforcement(redirectCommand) {
+						if node.Cmd != nil {
+							a.markStatementsUnsafe(node.Cmd, ctx.statementIDs)
+						}
+						a.markPipelineUnsafe(ctx)
 					}
 					if node.Cmd == nil && add {
 						return a.add(redirectCommand)
